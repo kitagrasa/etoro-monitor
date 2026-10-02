@@ -139,11 +139,10 @@ class Monitor:
             previous = Snapshot(user=previous_state.user, assets=dict(previous_state.assets))
             changes = diff_snapshots(previous, snapshot)
 
+        # El estado guarda SOLO la foto actual: se asigna, no se acumula. Lo
+        # que ya no está en la cartera desaparece del fichero.
         new_state = self.state.upsert_user(user)
         new_state.assets = dict(snapshot.assets)
-        new_state.known_instruments = set(snapshot.instrument_ids) | (
-            previous_state.known_instruments if previous_state else set()
-        )
 
         labels = {
             iid: self.state.instrument_label(iid) for iid in snapshot.instrument_ids

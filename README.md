@@ -388,6 +388,44 @@ Con eso, el repositorio público solo contiene código y documentación.
 apertura, precios de entrada, ganancias ni valor de la cartera. Antes el fichero
 ocupaba **61,7 KB**; ahora **~10 KB**.
 
+### Nada crece sin control
+
+Todo lo que se guarda cumple una de estas dos reglas: **se sobrescribe** o **se
+borra solo**. No hay nada que se acumule indefinidamente.
+
+| Qué | Cómo se limita |
+|---|---|
+| Las posiciones de cada persona | Se **sobrescriben**: solo existe la foto actual. Lo que ya no está en la cartera desaparece del fichero |
+| Los avisos de error (`cooldown.json`) | Se **borran solos** a los **30 días** |
+| Datos volátiles de cada ejecución | Fichero aparte (`.runtime.json`) que **no se versiona** |
+| El histórico de commits | Se **compacta automáticamente**: el repositorio se queda con **1 commit** |
+
+#### El histórico de commits se compacta solo
+
+El monitor **solo lee el estado actual**: nunca consulta commits anteriores. Así
+que el histórico no sirve para nada y, además, sería un registro fechado de las
+operaciones de otras personas.
+
+Con `COMPACTAR_HISTORIAL: true` (el valor por defecto), cada vez que hay algo
+que guardar se deja el repositorio de estado con **un único commit**. Da igual
+cuántas veces se ejecute: nunca acumula.
+
+Si algún día prefieres conservar algo de histórico, cambia esa variable a
+`false` al principio de `.github/workflows/monitor.yml`. El precio es que
+perderás la posibilidad de deshacer un cambio a mano (recuperar un estado
+anterior con `git checkout HEAD~1 -- state.json`).
+
+> **Nota honesta sobre el espacio:** compactar deja el historial limpio (1
+> commit en lugar de miles), pero **no reduce el tamaño del repositorio al
+> instante**. Los commits reemplazados quedan como objetos «inalcanzables»
+> hasta que GitHub ejecuta su mantenimiento. El beneficio real es que el
+> historial visible no crece y que, con el tiempo, ese espacio se recupera.
+
+#### Y se clona solo el último commit
+
+El workflow usa `--depth 1 --branch <rama>`, así que cada ejecución se descarga
+únicamente el último estado (unos KB) en vez del repositorio completo.
+
 `state/cooldown.json` guarda cuándo se avisó de cada problema (con nombres de
 usuario en las claves), así que también contiene información personal. El
 guardián de privacidad comprueba que empiece vacío.

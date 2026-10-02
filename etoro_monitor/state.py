@@ -47,10 +47,16 @@ class StateCorruptError(RuntimeError):
 
 @dataclass
 class UserState:
+    """La memoria de un usuario: sus activos y si ya se le mandó la línea base.
+
+    No se guarda nada más. En particular, no hay lista de "instrumentos
+    conocidos": se tuvo una vez y era peso muerto que crecía sin límite y no
+    se leía en ningún sitio.
+    """
+
     user: EtoroUser
     assets: dict[str, Asset] = field(default_factory=dict)
     baseline_sent: bool = False
-    known_instruments: set[int] = field(default_factory=set)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -63,7 +69,6 @@ class UserState:
             "allow_display_full_name": self.user.allow_display_full_name,
             "avatar_url": self.user.avatar_url,
             "baseline_sent": self.baseline_sent,
-            "known_instruments": sorted(self.known_instruments),
             "assets": {key: asset.to_dict() for key, asset in sorted(self.assets.items())},
         }
 
@@ -87,7 +92,6 @@ class UserState:
             user=user,
             assets=assets,
             baseline_sent=bool(data.get("baseline_sent")),
-            known_instruments={int(i) for i in data.get("known_instruments") or []},
         )
 
 

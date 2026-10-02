@@ -61,6 +61,17 @@ jobs:
       # Si tu repositorio de estado usa 'master' en vez de 'main', cámbialo aquí.
       STATE_BRANCH: main
 
+      # Compactar el historial del repositorio de estado.
+      #
+      #   true  (recomendado): cada vez que hay algo que guardar, se deja el
+      #          repositorio con UN ÚNICO commit (el estado actual). No se
+      #          acumula el histórico de las operaciones de nadie.
+      #   false: los commits se van acumulando uno detrás de otro.
+      #
+      # Para qué sirve el histórico: solo para poder deshacer un cambio a
+      # mano. El monitor no lo usa: siempre lee el estado actual.
+      COMPACTAR_HISTORIAL: true
+
     steps:
       - name: Descargar el código
         uses: actions/checkout@v4
@@ -87,6 +98,34 @@ jobs:
           STATE_REPO_TOKEN: ${{ secrets.STATE_REPO_TOKEN }}
         run: |
           set -e
+
+          # Trae el estado del repositorio remoto, quedandose SOLO con el
+          # ultimo commit (no hace falta el historico para nada).
+          #
+          # --depth 1 : baja unicamente el ultimo commit.
+          # --branch  : imprescindible. Sin esto, git solo trae la rama por
+          #             defecto del remoto, que puede no ser la del estado
+          #             (por ejemplo si el repositorio se creo con 'master' y
+          #             el estado vive en 'main'). En ese caso el clon sale
+          #             VACIO y el monitor creeria que es la primera vez en
+          #             cada ejecucion: repetiria avisos sin parar.
+          #
+          # Si el repositorio esta recien creado (vacio) o no tiene todavia la
+          # rama del estado, se empieza de cero en local; el primer push la
+          # creara.
+          clonar_estado() {
+            rm -rf .state-repo
+            if git clone --quiet --depth 1 --branch "$STATE_BRANCH" "$1" .state-repo 2>/dev/null; then
+              echo "Estado descargado (solo el ultimo commit)."
+            else
+              echo "Repositorio de estado vacio o sin la rama $STATE_BRANCH: empiezo de cero."
+              rm -rf .state-repo
+              mkdir -p .state-repo
+              git -C .state-repo init --quiet
+              git -C .state-repo remote add origin "$1"
+              git -C .state-repo checkout --quiet -B "$STATE_BRANCH"
+            fi
+          }
 
           if [ -n "$STATE_REPO" ] && [ -n "$STATE_DEPLOY_KEY" ]; then
             CREDENCIAL=deploy_key
@@ -121,11 +160,10 @@ jobs:
             # clon falla con 'Permission denied (publickey)' aunque la deploy
             # key esté perfectamente puesta en GitHub.
             #
-            # GIT_SSH_COMMAND vale para este paso (el clone); en el paso de
-            # guardar se configura core.sshCommand en el repositorio clonado.
+            # GIT_SSH_COMMAND vale para el clon; en el paso de guardar se
+            # configura core.sshCommand en el repositorio clonado.
             export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/state_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
-
-            git clone --quiet "git@github.com:${STATE_REPO}.git" .state-repo
+            clonar_estado "git@github.com:${STATE_REPO}.git"
             unset GIT_SSH_COMMAND
 
             # Se guarda en la configuración del repositorio (no en la URL, y
@@ -136,9 +174,8 @@ jobs:
 
           elif [ "$CREDENCIAL" = "token" ]; then
             echo "Estado en $STATE_REPO, con token."
-            git clone --quiet \
-              "https://x-access-token:${STATE_REPO_TOKEN}@github.com/${STATE_REPO}.git" \
-              .state-repo
+            clonar_estado \
+              "https://x-access-token:${STATE_REPO_TOKEN}@github.com/${STATE_REPO}.git"
             # El token no se queda guardado en la configuración de git.
             git -C .state-repo remote set-url origin "https://github.com/${STATE_REPO}.git"
             echo "modo=repo_privado" >> "$GITHUB_OUTPUT"
@@ -153,16 +190,6 @@ jobs:
           fi
 
           if [ -d .state-repo ]; then
-            # El clon NO siempre deja el estado a mano: si el repositorio está
-            # vacío, o si su rama por defecto no es la que usamos aquí, git
-            # avisa "remote HEAD refers to nonexistent ref" y no descarga nada.
-            # Eso sería grave: el monitor creería que es la primera vez en cada
-            # ejecución y repetiría avisos. Nos ponemos en la rama del estado a
-            # propósito, exista o no todavía.
-            git -C .state-repo checkout --quiet -B "$STATE_BRANCH" \
-              "origin/$STATE_BRANCH" 2>/dev/null \
-              || git -C .state-repo checkout --quiet -B "$STATE_BRANCH"
-
             # Primera vez: el repositorio está vacío y hay que crear los ficheros.
             [ -f .state-repo/state.json ]    || printf '{\n  "version": 2,\n  "instruments": {},\n  "users": {}\n}\n'    > .state-repo/state.json
             [ -f .state-repo/cooldown.json ] || printf '{\n  "version": 1,\n  "sent": {}\n}\n' > .state-repo/cooldown.json
@@ -233,11 +260,26 @@ jobs:
               echo "Sin cambios en el estado."
               exit 0
             fi
-            git commit --quiet -m "$MENSAJE"
-            # La credencial (clave SSH o token) va en la configuración del
-            # clon, así que aquí no hay que poner ningún secreto.
-            git push --quiet origin "HEAD:$STATE_BRANCH"
-            echo "Estado guardado en el repositorio privado (rama $STATE_BRANCH)"
+
+            if [ "$COMPACTAR_HISTORIAL" = "true" ]; then
+              # Se crea un commit NUEVO SIN PADRE: el repositorio se queda con
+              # un único commit, el estado actual. Así no se acumula un
+              # histórico con las posiciones de nadie a lo largo del tiempo.
+              #
+              # El historial no hace falta para nada: el monitor solo lee el
+              # estado actual (nunca consulta commits anteriores).
+              git checkout --quiet --orphan _estado_actual
+              git commit --quiet -m "$MENSAJE"
+              git branch --quiet -M "$STATE_BRANCH"
+              # La credencial (clave SSH o token) va en la configuración del
+              # clon, así que aquí no hay que poner ningún secreto.
+              git push --quiet --force origin "HEAD:$STATE_BRANCH"
+              echo "Estado guardado y historial compactado (1 commit) en $STATE_REPO"
+            else
+              git commit --quiet -m "$MENSAJE"
+              git push --quiet origin "HEAD:$STATE_BRANCH"
+              echo "Estado guardado en $STATE_REPO (histórico acumulativo)"
+            fi
           else
             # En el modo local sí es este repositorio, así que la identidad
             # se configura aquí.

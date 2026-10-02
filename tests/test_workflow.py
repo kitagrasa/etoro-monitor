@@ -138,6 +138,58 @@ def test_el_estado_se_guarda_pase_lo_que_pase(monitor):
     assert guardar, "el paso de guardar el estado debe tener 'if: always()'"
 
 
+def test_el_clon_es_superficial_y_de_la_rama_correcta(monitor):
+    """`--depth 1` a secas perdería el estado, y en silencio.
+
+    Sin `--branch`, git solo trae la rama por defecto del remoto. Si el
+    repositorio de estado se creó con 'master' (o su HEAD apunta ahí) y el
+    estado vive en 'main', el clon sale VACÍO. El monitor creería entonces
+    que es la primera vez en cada ejecución y repetiría avisos sin parar.
+
+    Con `--depth 1 --branch <rama>` el clon trae justo la rama del estado.
+    """
+    preparar = [p for p in pasos(monitor) if "STATE_DEPLOY_KEY" in (p.get("env") or {})][0]
+    run = preparar["run"]
+
+    assert "--depth 1" in run, "el clon no es superficial: baja todo el historial"
+    assert '--branch "$STATE_BRANCH"' in run, (
+        "el clon superficial no indica la rama: si el HEAD del remoto no es la "
+        "del estado, el clon quedaría vacío y se perdería el estado"
+    )
+    # Y debe haber salida para el repositorio recién creado (sin esa rama).
+    assert "init --quiet" in run, "no hay salida para un repositorio vacío"
+
+
+def test_el_historial_se_compacta(monitor):
+    """El repositorio de estado no debe acumular histórico.
+
+    El monitor solo lee el estado actual: los commits anteriores no sirven
+    para nada y son un registro fechado de las operaciones de terceros.
+    """
+    guardar = [p for p in pasos(monitor) if p.get("name") == "Guardar el estado"][0]
+    run = guardar["run"]
+
+    assert "--orphan" in run, "no se está compactando el historial"
+    assert "--force" in run, "la compactación necesita reemplazar la rama remota"
+    # La compactación debe incluir TODOS los ficheros de estado, no solo uno:
+    # si se dejara fuera cooldown.json se perderían las marcas de avisos.
+    assert "git add -A" in run
+
+
+def test_la_compactacion_se_puede_desactivar(monitor):
+    """Debe existir una salida de emergencia.
+
+    Compactar deja el repositorio sin posibilidad de deshacer un cambio. Si
+    alguien prefiere conservar algo de historial, tiene que poder hacerlo sin
+    editar el cuerpo del workflow.
+    """
+    assert "COMPACTAR_HISTORIAL" in monitor["jobs"]["monitor"].get("env", {}), (
+        "falta la variable que permite desactivar la compactación"
+    )
+    guardar = [p for p in pasos(monitor) if p.get("name") == "Guardar el estado"][0]
+    assert 'if [ "$COMPACTAR_HISTORIAL" = "true" ]' in guardar["run"]
+
+
 def test_soporta_repositorio_de_estado_privado(monitor):
     """El estado puede vivir fuera, para poder tener el código público."""
     preparar = [

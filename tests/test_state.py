@@ -68,7 +68,7 @@ def test_roundtrip(tmp_path):
     user_state = state.upsert_user(usuario(EJEMPLO))
     user_state.assets["1002:Buy"] = asset(1002, 11.417114)
     user_state.assets["6:Sell"] = asset(6, 0.354594, direction="Sell")
-    user_state.known_instruments = {1002, 6}
+    user_state.baseline_sent = True
     state.save()
 
     releido = State.load(ruta)
@@ -76,7 +76,36 @@ def test_roundtrip(tmp_path):
     assert recuperado is not None
     assert recuperado.assets["1002:Buy"].units == 11.417114
     assert recuperado.assets["6:Sell"].is_short is True
-    assert recuperado.known_instruments == {1002, 6}
+    assert recuperado.baseline_sent is True
+
+
+def test_no_hay_campos_que_crezcan_sin_limite(tmp_path):
+    """El estado de un usuario debe tener solo lo imprescindible.
+
+    Hubo un campo (`known_instruments`) que se acumulaba en cada ejecución y
+    no se leía en ningún sitio: peso muerto que solo crecía. Este test evita
+    que vuelva a colarse algo así.
+    """
+    ruta = tmp_path / "state.json"
+    state = State(path=ruta)
+    user_state = state.upsert_user(usuario(EJEMPLO))
+    user_state.assets["1002:Buy"] = asset(1002, 1.5)
+    state.save()
+
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    campos = set(datos["users"][EJEMPLO_MIN])
+    assert campos == {
+        "username",
+        "slug",
+        "gcid",
+        "real_cid",
+        "demo_cid",
+        "display_name",
+        "allow_display_full_name",
+        "avatar_url",
+        "baseline_sent",
+        "assets",
+    }, f"el estado ha ganado campos: {campos}"
 
 
 def test_el_estado_no_guarda_datos_de_posiciones(tmp_path):
