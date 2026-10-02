@@ -1,5 +1,2210 @@
 {
-  "version": 1,
-  "instruments": {},
-  "users": {}
+  "instruments": {
+    "1001": {
+      "exchange_id": 4,
+      "industry_id": 3,
+      "instrument_id": 1001,
+      "instrument_type_id": 5,
+      "name": "Apple",
+      "symbol": "AAPL"
+    },
+    "1003": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1003,
+      "instrument_type_id": 5,
+      "name": "Meta Platforms Inc",
+      "symbol": "META"
+    },
+    "1004": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1004,
+      "instrument_type_id": 5,
+      "name": "Microsoft",
+      "symbol": "MSFT"
+    },
+    "1021": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1021,
+      "instrument_type_id": 5,
+      "name": "Intel",
+      "symbol": "INTC"
+    },
+    "1027": {
+      "exchange_id": 5,
+      "industry_id": 5,
+      "instrument_id": 1027,
+      "instrument_type_id": 5,
+      "name": "Merck & Co.",
+      "symbol": "MRK"
+    },
+    "1118": {
+      "exchange_id": 5,
+      "industry_id": 4,
+      "instrument_id": 1118,
+      "instrument_type_id": 5,
+      "name": "Berkshire Hathaway Inc",
+      "symbol": "BRK.B"
+    },
+    "11230": {
+      "exchange_id": 7,
+      "industry_id": 9,
+      "instrument_id": 11230,
+      "instrument_type_id": 5,
+      "name": "Gulf Keystone Petroleum Ld",
+      "symbol": "GKP.L"
+    },
+    "1126": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1126,
+      "instrument_type_id": 5,
+      "name": "Adobe Systems Inc",
+      "symbol": "ADBE"
+    },
+    "1127": {
+      "exchange_id": 4,
+      "industry_id": 7,
+      "instrument_id": 1127,
+      "instrument_type_id": 5,
+      "name": "Netflix, Inc.",
+      "symbol": "NFLX"
+    },
+    "1130": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1130,
+      "instrument_type_id": 5,
+      "name": "Micron Technology, Inc.",
+      "symbol": "MU"
+    },
+    "1186": {
+      "exchange_id": 5,
+      "industry_id": 7,
+      "instrument_id": 1186,
+      "instrument_type_id": 5,
+      "name": "Uber Technologies Inc.",
+      "symbol": "UBER"
+    },
+    "1365": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1365,
+      "instrument_type_id": 5,
+      "name": "ARM Holdings PLC",
+      "symbol": "ARM"
+    },
+    "1484": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1484,
+      "instrument_type_id": 5,
+      "name": "PayPal Holdings",
+      "symbol": "PYPL"
+    },
+    "1485": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1485,
+      "instrument_type_id": 5,
+      "name": "Qualcomm Inc",
+      "symbol": "QCOM"
+    },
+    "1490": {
+      "exchange_id": 5,
+      "industry_id": 3,
+      "instrument_id": 1490,
+      "instrument_type_id": 5,
+      "name": "Target Corp",
+      "symbol": "TGT"
+    },
+    "1706": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1706,
+      "instrument_type_id": 5,
+      "name": "Applied Materials Inc",
+      "symbol": "AMAT"
+    },
+    "1832": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1832,
+      "instrument_type_id": 5,
+      "name": "Advanced Micro Devices Inc",
+      "symbol": "AMD"
+    },
+    "1906": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 1906,
+      "instrument_type_id": 5,
+      "name": "Lam Research Corp",
+      "symbol": "LRCX"
+    },
+    "2122": {
+      "exchange_id": 7,
+      "industry_id": 7,
+      "instrument_id": 2122,
+      "instrument_type_id": 5,
+      "name": "Harbour Energy plc",
+      "symbol": "HBR.L"
+    },
+    "2653": {
+      "exchange_id": 7,
+      "industry_id": 8,
+      "instrument_id": 2653,
+      "instrument_type_id": 5,
+      "name": "Clarkson PLC",
+      "symbol": "CKN.L"
+    },
+    "3025": {
+      "exchange_id": 5,
+      "industry_id": 4,
+      "instrument_id": 3025,
+      "instrument_type_id": 6,
+      "name": "SPDR Gold",
+      "symbol": "GLD"
+    },
+    "4124": {
+      "exchange_id": 5,
+      "industry_id": 8,
+      "instrument_id": 4124,
+      "instrument_type_id": 5,
+      "name": "Palo Alto Networks",
+      "symbol": "PANW"
+    },
+    "4257": {
+      "exchange_id": 5,
+      "industry_id": 1,
+      "instrument_id": 4257,
+      "instrument_type_id": 5,
+      "name": "Occidental Petroleum Corp",
+      "symbol": "OXY"
+    },
+    "4275": {
+      "exchange_id": 5,
+      "industry_id": 1,
+      "instrument_id": 4275,
+      "instrument_type_id": 5,
+      "name": "LyondellBasell Industries NV",
+      "symbol": "LYB"
+    },
+    "4286": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 4286,
+      "instrument_type_id": 5,
+      "name": "Atlassian Corp PLC A",
+      "symbol": "TEAM"
+    },
+    "4346": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 4346,
+      "instrument_type_id": 5,
+      "name": "Fortinet Inc",
+      "symbol": "FTNT"
+    },
+    "4358": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 4358,
+      "instrument_type_id": 5,
+      "name": "Marvell Technology Group Ltd",
+      "symbol": "MRVL"
+    },
+    "5506": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 5506,
+      "instrument_type_id": 5,
+      "name": "Crowdstrike Holdings",
+      "symbol": "CRWD"
+    },
+    "6414": {
+      "exchange_id": 4,
+      "industry_id": 8,
+      "instrument_id": 6414,
+      "instrument_type_id": 5,
+      "name": "Datadog Inc",
+      "symbol": "DDOG"
+    },
+    "6434": {
+      "exchange_id": 4,
+      "industry_id": 7,
+      "instrument_id": 6434,
+      "instrument_type_id": 5,
+      "name": "Alphabet Inc Class A",
+      "symbol": "GOOGL"
+    },
+    "6678": {
+      "exchange_id": 5,
+      "industry_id": 6,
+      "instrument_id": 6678,
+      "instrument_type_id": 5,
+      "name": "ZIM Shipping Services Ltd",
+      "symbol": "ZIM"
+    },
+    "8015": {
+      "exchange_id": 7,
+      "industry_id": 4,
+      "instrument_id": 8015,
+      "instrument_type_id": 6,
+      "name": "iShares NASDAQ 100 UCITS ETF usd",
+      "symbol": "CNDX.L"
+    },
+    "8047": {
+      "exchange_id": 4,
+      "industry_id": 7,
+      "instrument_id": 8047,
+      "instrument_type_id": 5,
+      "name": "Airbnb Inc",
+      "symbol": "ABNB"
+    },
+    "8588": {
+      "exchange_id": 4,
+      "industry_id": 4,
+      "instrument_id": 8588,
+      "instrument_type_id": 5,
+      "name": "Pagaya Technologies Ltd",
+      "symbol": "PGY"
+    },
+    "8611": {
+      "exchange_id": 4,
+      "industry_id": 7,
+      "instrument_id": 8611,
+      "instrument_type_id": 5,
+      "name": "Warner Bros Discovery Inc",
+      "symbol": "WBD"
+    },
+    "8925": {
+      "exchange_id": 4,
+      "industry_id": 3,
+      "instrument_id": 8925,
+      "instrument_type_id": 5,
+      "name": "Celsius Holdings Inc.",
+      "symbol": "CELH"
+    },
+    "8993": {
+      "exchange_id": 4,
+      "industry_id": 3,
+      "instrument_id": 8993,
+      "instrument_type_id": 5,
+      "name": "Aurinia Pharmaceuticals Inc.",
+      "symbol": "AUPH"
+    },
+    "9255": {
+      "exchange_id": 4,
+      "industry_id": 7,
+      "instrument_id": 9255,
+      "instrument_type_id": 5,
+      "name": "SoFi Technologies Inc",
+      "symbol": "SOFI"
+    }
+  },
+  "users": {
+    "gmenez128": {
+      "allow_display_full_name": true,
+      "avatar_url": "https://etoro-cdn.etorostatic.com/avatars/original/15070490/2.jpg",
+      "baseline_sent": true,
+      "demo_cid": 16627655,
+      "display_name": "Gregory Jimenez Baez",
+      "gcid": 15359378,
+      "known_instruments": [
+        1001,
+        1021,
+        1130,
+        1485,
+        1832,
+        3025
+      ],
+      "positions": {
+        "1524274616": {
+          "amount": 0.117125,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2022-03-14T13:56:36.01Z",
+          "open_rate": 152.68,
+          "position_id": 1524274616
+        },
+        "2272330322": {
+          "amount": 0.055919,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2022-08-29T16:07:41.27Z",
+          "open_rate": 161.5,
+          "position_id": 2272330322
+        },
+        "2316020365": {
+          "amount": 0.122372,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2022-11-03T17:01:46.62Z",
+          "open_rate": 140.7,
+          "position_id": 2316020365
+        },
+        "2422342337": {
+          "amount": 0.790427,
+          "instrument_id": 1130,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2023-04-10T15:19:47.233Z",
+          "open_rate": 62.96,
+          "position_id": 2422342337
+        },
+        "2515852375": {
+          "amount": 0.396055,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2023-09-11T15:13:36.327Z",
+          "open_rate": 178.27,
+          "position_id": 2515852375
+        },
+        "2515853840": {
+          "amount": 0.396016,
+          "instrument_id": 1130,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2023-09-11T15:15:46.547Z",
+          "open_rate": 69.67,
+          "position_id": 2515853840
+        },
+        "2602747587": {
+          "amount": 0.430985,
+          "instrument_id": 1130,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-01-17T15:16:55.947Z",
+          "open_rate": 83.08,
+          "position_id": 2602747587
+        },
+        "2602747916": {
+          "amount": 0.430985,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-01-17T15:17:15.483Z",
+          "open_rate": 181.67,
+          "position_id": 2602747916
+        },
+        "2619387192": {
+          "amount": 0.274114,
+          "instrument_id": 1130,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-02-07T20:08:29.68Z",
+          "open_rate": 84.83,
+          "position_id": 2619387192
+        },
+        "2635635029": {
+          "amount": 0.277364,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-02-28T15:34:48.153Z",
+          "open_rate": 181.14,
+          "position_id": 2635635029
+        },
+        "2663388835": {
+          "amount": 1.121243,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-03-22T14:39:00.53Z",
+          "open_rate": 171.85,
+          "position_id": 2663388835
+        },
+        "2770273551": {
+          "amount": 0.341937,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-07-17T13:41:36.023Z",
+          "open_rate": 229.79,
+          "position_id": 2770273551
+        },
+        "2939508240": {
+          "amount": 1.957956,
+          "instrument_id": 1021,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-02-11T15:11:48.017Z",
+          "open_rate": 20.77,
+          "position_id": 2939508240
+        },
+        "2939531177": {
+          "amount": 0.312607,
+          "instrument_id": 1021,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-02-11T15:18:03.66Z",
+          "open_rate": 20.86,
+          "position_id": 2939531177
+        },
+        "3080517906": {
+          "amount": 1.566365,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-07-22T18:57:23.92Z",
+          "open_rate": 214.13,
+          "position_id": 3080517906
+        },
+        "3080518219": {
+          "amount": 1.566365,
+          "instrument_id": 1021,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-07-22T18:57:47.227Z",
+          "open_rate": 23.21,
+          "position_id": 3080518219
+        },
+        "3094192370": {
+          "amount": 0.394567,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-08-05T23:09:28.373Z",
+          "open_rate": 202.77,
+          "position_id": 3094192370
+        },
+        "3110494995": {
+          "amount": 1.566365,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-08-25T14:25:21.207Z",
+          "open_rate": 228.91,
+          "position_id": 3110494995
+        },
+        "3110496448": {
+          "amount": 1.566365,
+          "instrument_id": 1021,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-08-25T14:26:57.263Z",
+          "open_rate": 25.12,
+          "position_id": 3110496448
+        },
+        "3147115148": {
+          "amount": 0.845837,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-10-02T14:46:38.51Z",
+          "open_rate": 256.6799,
+          "position_id": 3147115148
+        },
+        "3151245043": {
+          "amount": 4.033389,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-10-06T19:37:24.133Z",
+          "open_rate": 205.95,
+          "position_id": 3151245043
+        },
+        "3152108511": {
+          "amount": 0.835146,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-10-07T13:51:35.763Z",
+          "open_rate": 257.1201,
+          "position_id": 3152108511
+        },
+        "3152397581": {
+          "amount": 1.957956,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-10-07T15:13:47.223Z",
+          "open_rate": 211.11,
+          "position_id": 3152397581
+        },
+        "3155840698": {
+          "amount": 1.957956,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-10-09T13:17:08.99Z",
+          "open_rate": 237.5,
+          "position_id": 3155840698
+        },
+        "3156661027": {
+          "amount": 0.391591,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-10-09T17:31:44.103Z",
+          "open_rate": 253.41,
+          "position_id": 3156661027
+        },
+        "3156664182": {
+          "amount": 0.195796,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-10-09T17:34:07.86Z",
+          "open_rate": 230.16,
+          "position_id": 3156664182
+        },
+        "3222123841": {
+          "amount": 0.978978,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-12-08T16:55:09.183Z",
+          "open_rate": 277.53,
+          "position_id": 3222123841
+        },
+        "3249006639": {
+          "amount": 4.809287,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-01-06T21:47:57.767Z",
+          "open_rate": 214.32,
+          "position_id": 3249006639
+        },
+        "3411919084": {
+          "amount": 3.881843,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-04-22T14:53:07.657Z",
+          "open_rate": 271.24,
+          "position_id": 3411919084
+        },
+        "3437661824": {
+          "amount": 7.831823,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-05-11T12:54:52.713Z",
+          "open_rate": 292.73,
+          "position_id": 3437661824
+        },
+        "3462476957": {
+          "amount": 4.009893,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-01T18:25:05.22Z",
+          "open_rate": 307.77,
+          "position_id": 3462476957
+        },
+        "3490880560": {
+          "amount": 27.578119,
+          "instrument_id": 1485,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-22T18:12:48.677Z",
+          "open_rate": 227.6791,
+          "position_id": 3490880560
+        },
+        "3516205253": {
+          "amount": 14.496704,
+          "instrument_id": 3025,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-16T04:10:26.64Z",
+          "open_rate": 370.1301,
+          "position_id": 3516205253
+        },
+        "3521890751": {
+          "amount": 7.831823,
+          "instrument_id": 3025,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-24T02:46:32.78Z",
+          "open_rate": 370.8801,
+          "position_id": 3521890751
+        },
+        "3524262577": {
+          "amount": 3.788918,
+          "instrument_id": 1021,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-28T15:13:24.197Z",
+          "open_rate": 85.764,
+          "position_id": 3524262577
+        },
+        "681101836": {
+          "amount": 0.195796,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2020-07-23T14:36:10.203Z",
+          "open_rate": 96.43,
+          "position_id": 681101836
+        },
+        "685149887": {
+          "amount": 0.195796,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2020-07-28T19:38:28.343Z",
+          "open_rate": 93.67,
+          "position_id": 685149887
+        },
+        "894926330": {
+          "amount": 0.392766,
+          "instrument_id": 1001,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2021-01-12T17:19:15.57Z",
+          "open_rate": 127.3,
+          "position_id": 894926330
+        }
+      },
+      "real_cid": 15070490,
+      "slug": "gmenez128",
+      "username": "gmenez128"
+    },
+    "kbalteskard": {
+      "allow_display_full_name": true,
+      "avatar_url": "https://etoro-cdn.etorostatic.com/avatars/original/18050664/1.jpg",
+      "baseline_sent": true,
+      "demo_cid": 19585304,
+      "display_name": "Kristoffer Balteskard",
+      "gcid": 18339609,
+      "known_instruments": [
+        1126,
+        1130,
+        1832,
+        8588,
+        8925,
+        8993,
+        9255
+      ],
+      "positions": {
+        "2906776657": {
+          "amount": 2.666244,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-01-07T17:40:01.903Z",
+          "open_rate": 128.19,
+          "position_id": 2906776657
+        },
+        "2915043178": {
+          "amount": 1.633763,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-01-15T14:55:30.843Z",
+          "open_rate": 119.08,
+          "position_id": 2915043178
+        },
+        "2917405840": {
+          "amount": 0.816881,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-01-17T15:25:31.707Z",
+          "open_rate": 120.99,
+          "position_id": 2917405840
+        },
+        "2935280629": {
+          "amount": 0.816881,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-02-05T15:57:30.567Z",
+          "open_rate": 108.34,
+          "position_id": 2935280629
+        },
+        "2946475686": {
+          "amount": 1.225322,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-02-19T17:10:20.467Z",
+          "open_rate": 114.8,
+          "position_id": 2946475686
+        },
+        "2969324743": {
+          "amount": 0.408441,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-03-12T15:29:06.373Z",
+          "open_rate": 99.5,
+          "position_id": 2969324743
+        },
+        "2969887337": {
+          "amount": 0.408441,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-03-13T13:35:38.57Z",
+          "open_rate": 99.39,
+          "position_id": 2969887337
+        },
+        "2969968622": {
+          "amount": 0.408441,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-03-13T13:54:16.41Z",
+          "open_rate": 98.98,
+          "position_id": 2969968622
+        },
+        "2990296750": {
+          "amount": 1.021102,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-04-07T18:56:20.06Z",
+          "open_rate": 82.99,
+          "position_id": 2990296750
+        },
+        "3006875736": {
+          "amount": 1.06059,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-05-01T16:41:22.757Z",
+          "open_rate": 98.54,
+          "position_id": 3006875736
+        },
+        "3007692851": {
+          "amount": 0.816604,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-05-02T16:55:39.99Z",
+          "open_rate": 99.73,
+          "position_id": 3007692851
+        },
+        "3011020020": {
+          "amount": 0.408441,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-05-05T14:33:13.213Z",
+          "open_rate": 100.49,
+          "position_id": 3011020020
+        },
+        "3020362682": {
+          "amount": 0.743362,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-05-15T18:19:37.96Z",
+          "open_rate": 114.7,
+          "position_id": 3020362682
+        },
+        "3045118502": {
+          "amount": 6.371675,
+          "instrument_id": 1126,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-06-17T18:48:13.943Z",
+          "open_rate": 382.99,
+          "position_id": 3045118502
+        },
+        "3045749143": {
+          "amount": 1.856918,
+          "instrument_id": 1126,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-06-18T14:40:32.643Z",
+          "open_rate": 383.35,
+          "position_id": 3045749143
+        },
+        "3051484777": {
+          "amount": 4.097698,
+          "instrument_id": 1126,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-06-25T14:30:43.973Z",
+          "open_rate": 384.96,
+          "position_id": 3051484777
+        },
+        "3106383310": {
+          "amount": 9.538692,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-08-19T17:02:22.74Z",
+          "open_rate": 22.9,
+          "position_id": 3106383310
+        },
+        "3106425020": {
+          "amount": 1.371544,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-08-19T17:43:18.743Z",
+          "open_rate": 167.5,
+          "position_id": 3106425020
+        },
+        "3113516977": {
+          "amount": 4.898021,
+          "instrument_id": 1130,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-08-29T08:46:56.393Z",
+          "open_rate": 121.2,
+          "position_id": 3113516977
+        },
+        "3114111023": {
+          "amount": 2.127274,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-08-29T15:31:57.83Z",
+          "open_rate": 163.49,
+          "position_id": 3114111023
+        },
+        "3206320036": {
+          "amount": 5.316485,
+          "instrument_id": 8588,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-11-21T20:28:21.547Z",
+          "open_rate": 21.75,
+          "position_id": 3206320036
+        },
+        "3212753766": {
+          "amount": 5.255349,
+          "instrument_id": 8588,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-12-01T14:30:35.203Z",
+          "open_rate": 23.7284,
+          "position_id": 3212753766
+        },
+        "3240807565": {
+          "amount": 1.749842,
+          "instrument_id": 1126,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-01-02T14:31:35.433Z",
+          "open_rate": 349.99,
+          "position_id": 3240807565
+        },
+        "3245304395": {
+          "amount": 2.492305,
+          "instrument_id": 1126,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-01-06T04:36:26.03Z",
+          "open_rate": 332.3133,
+          "position_id": 3245304395
+        },
+        "3246972986": {
+          "amount": 2.042204,
+          "instrument_id": 8588,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-01-06T15:41:48.027Z",
+          "open_rate": 23.18,
+          "position_id": 3246972986
+        },
+        "3246973283": {
+          "amount": 2.04057,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-01-06T15:41:58.633Z",
+          "open_rate": 26.89,
+          "position_id": 3246973283
+        },
+        "3302275971": {
+          "amount": 1.228769,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-06T10:14:57.587Z",
+          "open_rate": 201.09,
+          "position_id": 3302275971
+        },
+        "3302883883": {
+          "amount": 1.470387,
+          "instrument_id": 1126,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-06T14:52:10.563Z",
+          "open_rate": 269.94,
+          "position_id": 3302883883
+        },
+        "3304921902": {
+          "amount": 1.387065,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-09T10:42:24.17Z",
+          "open_rate": 21.51,
+          "position_id": 3304921902
+        },
+        "3329090842": {
+          "amount": 2.241523,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-25T14:42:48.76Z",
+          "open_rate": 18.99,
+          "position_id": 3329090842
+        },
+        "3378327512": {
+          "amount": 1.223443,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-03-27T10:45:36.07Z",
+          "open_rate": 15.7,
+          "position_id": 3378327512
+        },
+        "3454821421": {
+          "amount": 1.621755,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-05-27T14:05:55.623Z",
+          "open_rate": 16.52,
+          "position_id": 3454821421
+        },
+        "3466022747": {
+          "amount": 9.802577,
+          "instrument_id": 8925,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-03T14:08:30.07Z",
+          "open_rate": 29.9356,
+          "position_id": 3466022747
+        },
+        "3466051461": {
+          "amount": 2.042204,
+          "instrument_id": 8925,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-03T14:18:04.337Z",
+          "open_rate": 29.4907,
+          "position_id": 3466051461
+        },
+        "3466173674": {
+          "amount": 1.633763,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-03T15:05:56.89Z",
+          "open_rate": 16.8,
+          "position_id": 3466173674
+        },
+        "3466175460": {
+          "amount": 1.633763,
+          "instrument_id": 8588,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-03T15:07:12.497Z",
+          "open_rate": 13.81,
+          "position_id": 3466175460
+        },
+        "3467124173": {
+          "amount": 0.816881,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-04T09:14:17.293Z",
+          "open_rate": 16.5,
+          "position_id": 3467124173
+        },
+        "3467797150": {
+          "amount": 0.816881,
+          "instrument_id": 8925,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-04T15:38:09.013Z",
+          "open_rate": 29.4,
+          "position_id": 3467797150
+        },
+        "3467821591": {
+          "amount": 1.633763,
+          "instrument_id": 8925,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-04T16:06:12.28Z",
+          "open_rate": 28.02,
+          "position_id": 3467821591
+        },
+        "3468012297": {
+          "amount": 0.799139,
+          "instrument_id": 8925,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-04T19:26:34.653Z",
+          "open_rate": 27.5,
+          "position_id": 3468012297
+        },
+        "3520565916": {
+          "amount": 0.817396,
+          "instrument_id": 8925,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-22T14:50:00.41Z",
+          "open_rate": 27.9,
+          "position_id": 3520565916
+        },
+        "3539118791": {
+          "amount": 4.549213,
+          "instrument_id": 8993,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-08-10T17:48:11.553Z",
+          "open_rate": 15.45,
+          "position_id": 3539118791
+        },
+        "3576090871": {
+          "amount": 2.451339,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-11T12:31:15.17Z",
+          "open_rate": 17.4596,
+          "position_id": 3576090871
+        },
+        "3585856048": {
+          "amount": 2.234171,
+          "instrument_id": 9255,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-23T15:08:02.29Z",
+          "open_rate": 16.9,
+          "position_id": 3585856048
+        }
+      },
+      "real_cid": 18050664,
+      "slug": "kbalteskard",
+      "username": "Kbalteskard"
+    },
+    "keshavlohiya": {
+      "allow_display_full_name": true,
+      "avatar_url": "https://etoro-cdn.etorostatic.com/avatars/original/3164773/5.jpg",
+      "baseline_sent": true,
+      "demo_cid": 4125795,
+      "display_name": "Keshav Lohiya",
+      "gcid": 3425491,
+      "known_instruments": [
+        1003,
+        1118,
+        1127,
+        1186,
+        1484,
+        2122,
+        2653,
+        4257,
+        4275,
+        6678,
+        11230
+      ],
+      "positions": {
+        "3108700607": {
+          "amount": 5.801218,
+          "instrument_id": 4275,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-08-21T19:12:49.563Z",
+          "open_rate": 55.58,
+          "position_id": 3108700607
+        },
+        "3206759337": {
+          "amount": 1.450305,
+          "instrument_id": 11230,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-11-24T08:50:27.537Z",
+          "open_rate": 173.0,
+          "position_id": 3206759337
+        },
+        "3206967474": {
+          "amount": 1.446933,
+          "instrument_id": 11230,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-11-24T10:38:23.807Z",
+          "open_rate": 171.6,
+          "position_id": 3206967474
+        },
+        "3207078672": {
+          "amount": 1.450305,
+          "instrument_id": 11230,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-11-24T12:18:23.46Z",
+          "open_rate": 170.0,
+          "position_id": 3207078672
+        },
+        "3228458509": {
+          "amount": 1.450305,
+          "instrument_id": 11230,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-12-16T11:53:29.057Z",
+          "open_rate": 167.2,
+          "position_id": 3228458509
+        },
+        "3228459910": {
+          "amount": 1.450305,
+          "instrument_id": 11230,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-12-16T11:54:32.763Z",
+          "open_rate": 167.4,
+          "position_id": 3228459910
+        },
+        "3275039802": {
+          "amount": 3.625761,
+          "instrument_id": 1484,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-01-22T09:48:26.307Z",
+          "open_rate": 56.3617,
+          "position_id": 3275039802
+        },
+        "3275632844": {
+          "amount": 1.087728,
+          "instrument_id": 11230,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-01-22T12:32:39.757Z",
+          "open_rate": 173.6,
+          "position_id": 3275632844
+        },
+        "3275668859": {
+          "amount": 1.087728,
+          "instrument_id": 11230,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-01-22T13:30:45.21Z",
+          "open_rate": 174.73,
+          "position_id": 3275668859
+        },
+        "3294647667": {
+          "amount": 2.781525,
+          "instrument_id": 1484,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-03T14:30:58.747Z",
+          "open_rate": 42.6198,
+          "position_id": 3294647667
+        },
+        "3315163002": {
+          "amount": 3.625007,
+          "instrument_id": 1003,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-13T16:09:28.85Z",
+          "open_rate": 648.885,
+          "position_id": 3315163002
+        },
+        "3326121389": {
+          "amount": 3.625761,
+          "instrument_id": 1186,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-23T17:14:13.59Z",
+          "open_rate": 70.8673,
+          "position_id": 3326121389
+        },
+        "3333486913": {
+          "amount": 3.622288,
+          "instrument_id": 1003,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-27T15:12:26.623Z",
+          "open_rate": 646.9599,
+          "position_id": 3333486913
+        },
+        "3360169965": {
+          "amount": 7.251523,
+          "instrument_id": 4257,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-03-10T16:36:04.677Z",
+          "open_rate": 53.11,
+          "position_id": 3360169965
+        },
+        "3400742920": {
+          "amount": 3.625761,
+          "instrument_id": 1186,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-04-13T13:47:53.103Z",
+          "open_rate": 70.53,
+          "position_id": 3400742920
+        },
+        "3403549585": {
+          "amount": 0.902082,
+          "instrument_id": 6678,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-04-14T17:42:31.027Z",
+          "open_rate": 26.3697,
+          "position_id": 3403549585
+        },
+        "3403555065": {
+          "amount": 0.512661,
+          "instrument_id": 6678,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-04-14T17:43:23.397Z",
+          "open_rate": 26.38,
+          "position_id": 3403555065
+        },
+        "3403573254": {
+          "amount": 1.450254,
+          "instrument_id": 6678,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-04-14T17:59:15.557Z",
+          "open_rate": 26.3891,
+          "position_id": 3403573254
+        },
+        "3405635749": {
+          "amount": 3.625754,
+          "instrument_id": 1186,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-04-16T13:40:56.203Z",
+          "open_rate": 77.8098,
+          "position_id": 3405635749
+        },
+        "3405730228": {
+          "amount": 2.432951,
+          "instrument_id": 1484,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-04-16T13:54:54.413Z",
+          "open_rate": 49.4563,
+          "position_id": 3405730228
+        },
+        "3445429072": {
+          "amount": 7.25137,
+          "instrument_id": 1118,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-05-15T19:51:59.877Z",
+          "open_rate": 482.99,
+          "position_id": 3445429072
+        },
+        "3503187094": {
+          "amount": 0.725152,
+          "instrument_id": 1127,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-01T13:19:48.307Z",
+          "open_rate": 73.1077,
+          "position_id": 3503187094
+        },
+        "3503230481": {
+          "amount": 3.625761,
+          "instrument_id": 1127,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-01T13:31:06.28Z",
+          "open_rate": 72.8399,
+          "position_id": 3503230481
+        },
+        "3504222939": {
+          "amount": 1.45,
+          "instrument_id": 6678,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-01T16:34:31.453Z",
+          "open_rate": 25.4846,
+          "position_id": 3504222939
+        },
+        "3504227160": {
+          "amount": 1.450268,
+          "instrument_id": 6678,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-01T16:35:38.887Z",
+          "open_rate": 25.4394,
+          "position_id": 3504227160
+        },
+        "3504233825": {
+          "amount": 1.450109,
+          "instrument_id": 6678,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-01T16:38:36.347Z",
+          "open_rate": 25.4766,
+          "position_id": 3504233825
+        },
+        "3536527055": {
+          "amount": 1.450305,
+          "instrument_id": 2122,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-08-07T07:56:04.743Z",
+          "open_rate": 249.6,
+          "position_id": 3536527055
+        },
+        "3536530985": {
+          "amount": 3.625761,
+          "instrument_id": 2122,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-08-07T07:56:37.253Z",
+          "open_rate": 251.1072,
+          "position_id": 3536530985
+        },
+        "3536535050": {
+          "amount": 4.350914,
+          "instrument_id": 2122,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-08-07T07:57:20.19Z",
+          "open_rate": 252.2327,
+          "position_id": 3536535050
+        },
+        "3557044808": {
+          "amount": 1.450305,
+          "instrument_id": 2653,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-08-26T07:37:51.69Z",
+          "open_rate": 4974.0,
+          "position_id": 3557044808
+        },
+        "3557049905": {
+          "amount": 1.450196,
+          "instrument_id": 2653,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-08-26T07:39:19.37Z",
+          "open_rate": 4974.0,
+          "position_id": 3557049905
+        },
+        "3557054490": {
+          "amount": 1.450305,
+          "instrument_id": 2653,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-08-26T07:42:20.083Z",
+          "open_rate": 5005.83,
+          "position_id": 3557054490
+        },
+        "3559385213": {
+          "amount": 1.450305,
+          "instrument_id": 2653,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-08-27T08:17:39.79Z",
+          "open_rate": 4938.0,
+          "position_id": 3559385213
+        },
+        "3575951160": {
+          "amount": 1.722418,
+          "instrument_id": 2122,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-11T11:43:49.88Z",
+          "open_rate": 271.0,
+          "position_id": 3575951160
+        },
+        "3589511515": {
+          "amount": 7.237491,
+          "instrument_id": 1186,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-28T13:51:15.207Z",
+          "open_rate": 67.8956,
+          "position_id": 3589511515
+        }
+      },
+      "real_cid": 3164773,
+      "slug": "keshavlohiya",
+      "username": "KeshavLohiya"
+    },
+    "prajwalsdharan": {
+      "allow_display_full_name": true,
+      "avatar_url": "https://etoro-cdn.etorostatic.com/avatars/original/34613937/1.jpg",
+      "baseline_sent": true,
+      "demo_cid": 36045753,
+      "display_name": "Prajwal Shashi Dharan",
+      "gcid": 34843357,
+      "known_instruments": [
+        1003,
+        1004,
+        6434,
+        8015
+      ],
+      "positions": {
+        "2776007996": {
+          "amount": 1.094689,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-07-25T07:00:22.483Z",
+          "open_rate": 1090.8,
+          "position_id": 2776007996
+        },
+        "2783641078": {
+          "amount": 0.756279,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-08-05T07:07:33.11Z",
+          "open_rate": 1001.06,
+          "position_id": 2783641078
+        },
+        "2791300298": {
+          "amount": 1.03101,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-08-14T10:56:33.853Z",
+          "open_rate": 1085.88,
+          "position_id": 2791300298
+        },
+        "2807927573": {
+          "amount": 0.504186,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-09-13T07:00:27.247Z",
+          "open_rate": 1110.09,
+          "position_id": 2807927573
+        },
+        "2814820366": {
+          "amount": 1.6139,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-09-25T07:00:27.87Z",
+          "open_rate": 1135.05,
+          "position_id": 2814820366
+        },
+        "2851358411": {
+          "amount": 0.366392,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-11-11T14:38:12.073Z",
+          "open_rate": 1209.48,
+          "position_id": 2851358411
+        },
+        "2852606274": {
+          "amount": 0.644955,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-11-12T08:13:15.76Z",
+          "open_rate": 1205.45,
+          "position_id": 2852606274
+        },
+        "2878294622": {
+          "amount": 0.553496,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-12-09T08:00:31.577Z",
+          "open_rate": 1239.34,
+          "position_id": 2878294622
+        },
+        "2886692351": {
+          "amount": 3.529304,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2024-12-18T08:16:47.96Z",
+          "open_rate": 1260.3,
+          "position_id": 2886692351
+        },
+        "2898722862": {
+          "amount": 2.016745,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-01-02T12:08:04.907Z",
+          "open_rate": 1216.32,
+          "position_id": 2898722862
+        },
+        "2969054331": {
+          "amount": 2.520931,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-03-12T13:40:54.49Z",
+          "open_rate": 1129.56,
+          "position_id": 2969054331
+        },
+        "2990541482": {
+          "amount": 1.008373,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-04-08T07:21:21.223Z",
+          "open_rate": 1013.88,
+          "position_id": 2990541482
+        },
+        "3181186209": {
+          "amount": 1.527231,
+          "instrument_id": 1003,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-10-30T14:30:35.21Z",
+          "open_rate": 662.42,
+          "position_id": 3181186209
+        },
+        "3192317572": {
+          "amount": 5.823351,
+          "instrument_id": 1003,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-11-07T18:35:03.283Z",
+          "open_rate": 612.52,
+          "position_id": 3192317572
+        },
+        "3199109477": {
+          "amount": 2.520931,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-11-14T09:05:11.34Z",
+          "open_rate": 1429.4,
+          "position_id": 3199109477
+        },
+        "3206773669": {
+          "amount": 2.520931,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-11-24T09:18:33.937Z",
+          "open_rate": 1400.8,
+          "position_id": 3206773669
+        },
+        "3207214618": {
+          "amount": 7.562794,
+          "instrument_id": 1003,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-11-24T14:34:54.447Z",
+          "open_rate": 601.98,
+          "position_id": 3207214618
+        },
+        "3226396030": {
+          "amount": 3.65646,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2025-12-15T08:00:34.807Z",
+          "open_rate": 1447.8,
+          "position_id": 3226396030
+        },
+        "3512111723": {
+          "amount": 14.011588,
+          "instrument_id": 1004,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-09T17:55:36.363Z",
+          "open_rate": 380.6,
+          "position_id": 3512111723
+        },
+        "3512419551": {
+          "amount": 17.273421,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-10T10:19:30.177Z",
+          "open_rate": 1701.4,
+          "position_id": 3512419551
+        },
+        "3525976102": {
+          "amount": 1.399066,
+          "instrument_id": 8015,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-30T07:07:34.15Z",
+          "open_rate": 1572.0,
+          "position_id": 3525976102
+        },
+        "3579445669": {
+          "amount": 2.016745,
+          "instrument_id": 6434,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-16T05:47:15.617Z",
+          "open_rate": 345.0,
+          "position_id": 3579445669
+        },
+        "3587238762": {
+          "amount": 12.10047,
+          "instrument_id": 6434,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-24T18:27:24.713Z",
+          "open_rate": 342.04,
+          "position_id": 3587238762
+        }
+      },
+      "real_cid": 34613937,
+      "slug": "prajwalsdharan",
+      "username": "prajwalsdharan"
+    },
+    "relentlessalpha": {
+      "allow_display_full_name": true,
+      "avatar_url": "https://etoro-cdn.etorostatic.com/avatars/original/45939276/3.jpg",
+      "baseline_sent": true,
+      "demo_cid": 47211942,
+      "display_name": "Octavio and Marco",
+      "gcid": 46024696,
+      "known_instruments": [
+        1021,
+        1027,
+        1130,
+        1365,
+        1490,
+        1706,
+        1832,
+        1906,
+        4124,
+        4286,
+        4346,
+        4358,
+        5506,
+        6414,
+        8047,
+        8611
+      ],
+      "positions": {
+        "3295891451": {
+          "amount": 3.728337,
+          "instrument_id": 1130,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-03T21:58:18.017Z",
+          "open_rate": 418.4,
+          "position_id": 3295891451
+        },
+        "3295891715": {
+          "amount": 2.574681,
+          "instrument_id": 1906,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-03T21:59:02.89Z",
+          "open_rate": 229.48,
+          "position_id": 3295891715
+        },
+        "3295891974": {
+          "amount": 0.829431,
+          "instrument_id": 1021,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-03T22:00:09.58Z",
+          "open_rate": 49.43,
+          "position_id": 3295891974
+        },
+        "3295892210": {
+          "amount": 0.786581,
+          "instrument_id": 1706,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-02-03T22:02:20.033Z",
+          "open_rate": 318.35,
+          "position_id": 3295892210
+        },
+        "3462541450": {
+          "amount": 2.502793,
+          "instrument_id": 4358,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-06-01T19:13:01.417Z",
+          "open_rate": 223.56,
+          "position_id": 3462541450
+        },
+        "3502985928": {
+          "amount": 5.652097,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-07-01T09:52:08.66Z",
+          "open_rate": 572.6762,
+          "position_id": 3502985928
+        },
+        "3530719635": {
+          "amount": 2.864912,
+          "instrument_id": 4358,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-08-03T08:05:05.597Z",
+          "open_rate": 189.3827,
+          "position_id": 3530719635
+        },
+        "3564936989": {
+          "amount": 3.916321,
+          "instrument_id": 6414,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-01T13:30:35.977Z",
+          "open_rate": 234.9661,
+          "position_id": 3564936989
+        },
+        "3564958470": {
+          "amount": 3.048132,
+          "instrument_id": 4124,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-01T13:31:25.843Z",
+          "open_rate": 373.2423,
+          "position_id": 3564958470
+        },
+        "3565199717": {
+          "amount": 3.013079,
+          "instrument_id": 4346,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-01T13:46:59.417Z",
+          "open_rate": 167.391,
+          "position_id": 3565199717
+        },
+        "3565205531": {
+          "amount": 1.693544,
+          "instrument_id": 5506,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-01T13:47:44.283Z",
+          "open_rate": 223.63,
+          "position_id": 3565205531
+        },
+        "3565260918": {
+          "amount": 1.145894,
+          "instrument_id": 1490,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-01T13:52:23.873Z",
+          "open_rate": 161.54,
+          "position_id": 3565260918
+        },
+        "3580461621": {
+          "amount": 0.825603,
+          "instrument_id": 1490,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:01:59.503Z",
+          "open_rate": 156.0,
+          "position_id": 3580461621
+        },
+        "3580462262": {
+          "amount": 1.363656,
+          "instrument_id": 5506,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:03:37.27Z",
+          "open_rate": 240.49,
+          "position_id": 3580462262
+        },
+        "3580462481": {
+          "amount": 1.835343,
+          "instrument_id": 1365,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:04:01.7Z",
+          "open_rate": 253.86,
+          "position_id": 3580462481
+        },
+        "3580462825": {
+          "amount": 2.258059,
+          "instrument_id": 4124,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:04:25.167Z",
+          "open_rate": 369.1,
+          "position_id": 3580462825
+        },
+        "3580463255": {
+          "amount": 2.30569,
+          "instrument_id": 4346,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:04:49.067Z",
+          "open_rate": 171.97,
+          "position_id": 3580463255
+        },
+        "3580463586": {
+          "amount": 0.436052,
+          "instrument_id": 1906,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:05:55.997Z",
+          "open_rate": 276.78,
+          "position_id": 3580463586
+        },
+        "3580463755": {
+          "amount": 2.467988,
+          "instrument_id": 1706,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:06:21.59Z",
+          "open_rate": 426.88,
+          "position_id": 3580463755
+        },
+        "3580463908": {
+          "amount": 0.960733,
+          "instrument_id": 6414,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:06:42.63Z",
+          "open_rate": 232.0,
+          "position_id": 3580463908
+        },
+        "3580464153": {
+          "amount": 3.553179,
+          "instrument_id": 1832,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:07:01.423Z",
+          "open_rate": 524.69,
+          "position_id": 3580464153
+        },
+        "3580464276": {
+          "amount": 4.660774,
+          "instrument_id": 4358,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:07:19.873Z",
+          "open_rate": 236.36,
+          "position_id": 3580464276
+        },
+        "3580464583": {
+          "amount": 6.308452,
+          "instrument_id": 1130,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:07:47.407Z",
+          "open_rate": 946.0,
+          "position_id": 3580464583
+        },
+        "3580464705": {
+          "amount": 7.32987,
+          "instrument_id": 1021,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-09-17T11:08:06.987Z",
+          "open_rate": 103.67,
+          "position_id": 3580464705
+        },
+        "3592992090": {
+          "amount": 1.605374,
+          "instrument_id": 1027,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:18:12.12Z",
+          "open_rate": 145.1114,
+          "position_id": 3592992090
+        },
+        "3592995693": {
+          "amount": 1.794821,
+          "instrument_id": 8047,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:18:43.463Z",
+          "open_rate": 161.6471,
+          "position_id": 3592995693
+        },
+        "3593017897": {
+          "amount": 2.61141,
+          "instrument_id": 1490,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:25:38.32Z",
+          "open_rate": 156.9718,
+          "position_id": 3593017897
+        },
+        "3593021764": {
+          "amount": 5.283505,
+          "instrument_id": 4286,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:26:39.537Z",
+          "open_rate": 185.1803,
+          "position_id": 3593021764
+        },
+        "3593027563": {
+          "amount": 2.869181,
+          "instrument_id": 4346,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:28:56.443Z",
+          "open_rate": 181.4003,
+          "position_id": 3593027563
+        },
+        "3593031807": {
+          "amount": 6.482199,
+          "instrument_id": 5506,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:30:11.1Z",
+          "open_rate": 268.0226,
+          "position_id": 3593031807
+        },
+        "3593039780": {
+          "amount": 7.047613,
+          "instrument_id": 4124,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:31:47.993Z",
+          "open_rate": 405.0653,
+          "position_id": 3593039780
+        },
+        "3593044453": {
+          "amount": 1.764108,
+          "instrument_id": 4358,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:34:27.903Z",
+          "open_rate": 266.223,
+          "position_id": 3593044453
+        },
+        "3593053188": {
+          "amount": 0.829131,
+          "instrument_id": 1130,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:35:21.897Z",
+          "open_rate": 1056.3032,
+          "position_id": 3593053188
+        },
+        "3593059280": {
+          "amount": 1.420107,
+          "instrument_id": 8611,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T11:40:52.47Z",
+          "open_rate": 30.95,
+          "position_id": 3593059280
+        },
+        "3593094588": {
+          "amount": 1.842982,
+          "instrument_id": 4358,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T12:23:08.263Z",
+          "open_rate": 265.717,
+          "position_id": 3593094588
+        },
+        "3593098143": {
+          "amount": 0.190524,
+          "instrument_id": 5506,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T12:23:24.417Z",
+          "open_rate": 261.7159,
+          "position_id": 3593098143
+        },
+        "3593099115": {
+          "amount": 0.114667,
+          "instrument_id": 4346,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T12:24:33.857Z",
+          "open_rate": 179.66,
+          "position_id": 3593099115
+        },
+        "3593099640": {
+          "amount": 0.082913,
+          "instrument_id": 1130,
+          "is_buy": true,
+          "leverage": 1,
+          "mirror_id": 0,
+          "open_datetime": "2026-10-01T12:24:48.03Z",
+          "open_rate": 1054.98,
+          "position_id": 3593099640
+        }
+      },
+      "real_cid": 45939276,
+      "slug": "relentlessalpha",
+      "username": "RelentlessAlpha"
+    }
+  },
+  "version": 1
 }
