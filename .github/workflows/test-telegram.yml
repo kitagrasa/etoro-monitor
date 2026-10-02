@@ -1,0 +1,31 @@
+name: Probar Telegram
+
+# Manda un mensaje de prueba al chat configurado. Sirve para comprobar que
+# el token del bot y el chat ID están bien antes de dejarlo en automático.
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Enviar mensaje de prueba
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ETORO_USERS: ${{ secrets.ETORO_USERS }}
+        run: |
+          # Solo informativo: si aún no has puesto usuarios, no debe fallar
+          echo "Usuarios configurados:"
+          python -m etoro_monitor users || true
+          echo
+          python -m etoro_monitor notify-test

@@ -1,0 +1,106 @@
+name: Monitor eToro -> Telegram
+
+# ---------------------------------------------------------------------------
+# Revisa cada 30 minutos las carteras públicas de los usuarios de
+# watchlist.md (una persona por línea) y manda un mensaje a Telegram cuando
+# alguno compra, vende, amplía o reduce una posición.
+#
+# No hace login en eToro ni requiere KYC: solo lee los endpoints públicos
+# que carga la propia web de eToro.
+# ---------------------------------------------------------------------------
+on:
+  schedule:
+    # Cada 30 minutos (GitHub puede retrasarlo unos minutos en horas punta).
+    # Va bien tanto en repositorio público como privado: son unas ~1.440
+    # ejecuciones al mes, dentro de los 2.000 minutos/mes gratis de Actions.
+    #
+    # Si el repo es PÚBLICO y quieres ir más fino, puedes bajarlo a "*/10"
+    # o "*/5". Nunca menos de 5 minutos: GitHub no admite más frecuencia.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Solo mostrar los avisos en el log, sin enviarlos a Telegram"
+        type: boolean
+        default: false
+      reset_state:
+        description: "Olvidar el estado guardado (vuelve a mandar la línea base)"
+        type: boolean
+        default: false
+
+# Evita que dos ejecuciones se pisen al guardar el estado.
+concurrency:
+  group: etoro-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      # ------------------------------------------------------------------
+      # Aquí está todo el trabajo. Los secretos se leen del entorno:
+      #   TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID
+      # ------------------------------------------------------------------
+      - name: Revisar carteras y avisar por Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          LOG_LEVEL: INFO
+          # Un usuario por línea en watchlist.md.
+          ETORO_WATCHLIST_MD: watchlist.md
+          # Opcional: si defines el secreto ETORO_USERS, manda sobre el .md
+          # y tu lista de seguimiento no queda guardada en el repositorio.
+          ETORO_USERS: ${{ secrets.ETORO_USERS }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ "${{ inputs.reset_state }}" = "true" ]; then
+            ARGS="$ARGS --reset"
+          fi
+          python -m etoro_monitor check $ARGS
+
+      # ------------------------------------------------------------------
+      # El fichero de estado solo cambia cuando hay movimientos reales, así
+      # que esto solo hace commit cuando alguien ha comprado o vendido.
+      # Se ejecuta incluso si el paso anterior falla, para no perder el
+      # estado parcial (y no repetir avisos en la siguiente vuelta).
+      # ------------------------------------------------------------------
+      - name: Guardar el estado
+        if: always()
+        run: |
+          if [ -z "$(git status --porcelain state/state.json)" ]; then
+            echo "El estado no ha cambiado: no hay nada que guardar."
+            exit 0
+          fi
+
+          git config user.name  "etoro-monitor[bot]"
+          git config user.email "etoro-monitor@users.noreply.github.com"
+          git add state/state.json
+          git commit -m "estado: $(date -u '+%Y-%m-%d %H:%M UTC') [skip ci]"
+
+          # En eventos 'schedule' el checkout deja la HEAD desacoplada, así que
+          # empujamos explícitamente a la rama y rebasamos por si alguien ha
+          # tocado el repositorio mientras corríamos.
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git fetch --quiet origin "$BRANCH" || true
+          git rebase "origin/$BRANCH" >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1 || true
+          git push origin "HEAD:$BRANCH"

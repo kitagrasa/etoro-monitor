@@ -1,0 +1,20 @@
+# ---------------------------------------------------------------------------
+# Ajustes técnicos del monitor. NO hace falta que toques esto.
+#
+# ¿A quién se sigue? Eso está en watchlist.md, una persona por línea.
+# ---------------------------------------------------------------------------
+
+# Lista de usuarios heredada del formato antiguo. Ahora manda watchlist.md;
+# deja esto vacío y edita watchlist.md para elegir a quién seguir.
+users: []
+
+# Cómo de prudente eres con la API pública de eToro.
+http:
+  delay_seconds: 0.35     # pausa entre peticiones (con jitter aleatorio)
+  timeout_seconds: 30
+  max_retries: 3
+
+alerts:
+  notify_on_baseline: true     # mensaje de bienvenida la 1ª vez que ve a un usuario
+  notify_on_error: true        # avisa si eToro bloquea o falla
+  error_cooldown_minutes: 180  # ...como máximo una vez cada 3 horas

@@ -1,0 +1,13 @@
+# Secretos y datos locales
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# El estado SÍ se versiona (state/state.json) porque es la memoria del bot.
+# Pero los datos volátiles de cada ejecución no interesan.
+state/*.runtime.json
+state/*.tmp
+state/*.bak
