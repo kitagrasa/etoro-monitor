@@ -116,7 +116,17 @@ jobs:
             printf '%s\n' "$STATE_DEPLOY_KEY" > ~/.ssh/state_key
             chmod 600 ~/.ssh/state_key
 
+            # IMPORTANTE: git NO usa esta clave por su cuenta. Si no se le dice,
+            # busca las claves de siempre (~/.ssh/id_ed25519, id_rsa...) y el
+            # clon falla con 'Permission denied (publickey)' aunque la deploy
+            # key esté perfectamente puesta en GitHub.
+            #
+            # GIT_SSH_COMMAND vale para este paso (el clone); en el paso de
+            # guardar se configura core.sshCommand en el repositorio clonado.
+            export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/state_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+
             git clone --quiet "git@github.com:${STATE_REPO}.git" .state-repo
+            unset GIT_SSH_COMMAND
 
             # Se guarda en la configuración del repositorio (no en la URL, y
             # sin el secreto dentro) para que el push de más abajo la use sola.
@@ -200,8 +210,8 @@ jobs:
           MODO: ${{ steps.estado.outputs.modo }}
         run: |
           set -e
-          git config user.name  "etoro-monitor[bot]"
-          git config user.email "etoro-monitor@users.noreply.github.com"
+          IDENTIDAD_NAME="etoro-monitor[bot]"
+          IDENTIDAD_EMAIL="etoro-monitor@users.noreply.github.com"
           MENSAJE="estado: $(date -u '+%Y-%m-%d %H:%M UTC') [skip ci]"
 
           if [ "$MODO" = "repo_privado" ]; then
@@ -210,6 +220,14 @@ jobs:
               exit 1
             fi
             cd .state-repo
+
+            # La identidad hay que configurarla DENTRO del repositorio de
+            # estado: es otro repositorio distinto y tiene su propia
+            # configuración. Sin esto, el commit falla con "Author identity
+            # unknown".
+            git config user.name  "$IDENTIDAD_NAME"
+            git config user.email "$IDENTIDAD_EMAIL"
+
             git add -A
             if git diff --cached --quiet; then
               echo "Sin cambios en el estado."
@@ -221,6 +239,11 @@ jobs:
             git push --quiet origin "HEAD:$STATE_BRANCH"
             echo "Estado guardado en el repositorio privado (rama $STATE_BRANCH)"
           else
+            # En el modo local sí es este repositorio, así que la identidad
+            # se configura aquí.
+            git config user.name  "$IDENTIDAD_NAME"
+            git config user.email "$IDENTIDAD_EMAIL"
+
             git add state/state.json state/cooldown.json
             if git diff --cached --quiet; then
               echo "Sin cambios en el estado."

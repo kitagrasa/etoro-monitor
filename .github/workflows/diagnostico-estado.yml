@@ -1,0 +1,173 @@
+name: Diagnóstico de la credencial de estado
+
+# ---------------------------------------------------------------------------
+# Sirve para averiguar por qué falla el acceso al repositorio de estado.
+#
+# No envía nada a Telegram ni modifica el estado: solo mira la credencial y
+# prueba la conexión, dando un mensaje claro de qué está mal.
+#
+# NO imprime la clave privada. Solo su huella y la clave PÚBLICA derivada de
+# ella, que es justo la que tiene que estar pegada en GitHub.
+# ---------------------------------------------------------------------------
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. ¿Están los secretos?
+      # ------------------------------------------------------------------
+      - name: ¿Están los secretos definidos?
+        env:
+          STATE_REPO: ${{ secrets.STATE_REPO }}
+          STATE_DEPLOY_KEY: ${{ secrets.STATE_DEPLOY_KEY }}
+        run: |
+          echo "STATE_REPO:        $([ -n "$STATE_REPO" ] && echo "definido ($STATE_REPO)" || echo "❌ VACÍO O NO EXISTE")"
+          echo "STATE_DEPLOY_KEY:  $([ -n "$STATE_DEPLOY_KEY" ] && echo "definido (${#STATE_DEPLOY_KEY} caracteres)" || echo "❌ VACÍO O NO EXISTE")"
+          echo
+          if [ -z "$STATE_REPO" ]; then
+            echo "::error::Falta el secreto STATE_REPO."
+            exit 1
+          fi
+          if [ -z "$STATE_DEPLOY_KEY" ]; then
+            echo "::error::Falta el secreto STATE_DEPLOY_KEY."
+            exit 1
+          fi
+
+      # ------------------------------------------------------------------
+      # 2. ¿El contenido es una clave privada válida?
+      # ------------------------------------------------------------------
+      - name: ¿La clave del secreto es válida?
+        env:
+          STATE_DEPLOY_KEY: ${{ secrets.STATE_DEPLOY_KEY }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+
+          # Se escriben las DOS formas de guardar un secreto multilínea, porque
+          # según cómo se pegue, GitHub puede haber convertido los saltos de
+          # línea en "\n" literales. Se prueban ambas.
+          printf '%s\n' "$STATE_DEPLOY_KEY" > ~/.ssh/state_key
+          chmod 600 ~/.ssh/state_key
+
+          printf '%b\n' "$STATE_DEPLOY_KEY" > ~/.ssh/state_key_2
+          chmod 600 ~/.ssh/state_key_2
+
+          ENCONTRADA=""
+          for candidata in ~/.ssh/state_key_2 ~/.ssh/state_key; do
+            if ssh-keygen -y -f "$candidata" >/dev/null 2>&1; then
+              ENCONTRADA="$candidata"
+              break
+            fi
+          done
+
+          if [ -z "$ENCONTRADA" ]; then
+            echo "::error::El secreto STATE_DEPLOY_KEY no contiene una clave privada que ssh pueda leer."
+            echo
+            echo "Que NO se puede leer una clave suele ser por una de estas razones:"
+            echo "  · Se pegó la clave PÚBLICA (empieza por 'ssh-ed25519 AAAA...') en vez"
+            echo "    de la privada. La privada lleva líneas BEGIN/END OPENSSH PRIVATE KEY."
+            echo "  · Faltan las líneas '-----BEGIN OPENSSH PRIVATE KEY-----' o"
+            echo "    '-----END OPENSSH PRIVATE KEY-----'."
+            echo "  · El copiado cortó el texto por la mitad o añadió espacios."
+            echo
+            echo "Primeras líneas de lo que LLEGÓ (sin mostrar la clave):"
+            head -c 40 ~/.ssh/state_key | sed 's/^/  /'
+            echo
+            exit 1
+          fi
+
+          cp "$ENCONTRADA" ~/.ssh/state_key_final
+          chmod 600 ~/.ssh/state_key_final
+
+          echo "✅ La clave privada se lee correctamente."
+          echo
+          echo "HUELLA de la clave que hay en el secreto:"
+          ssh-keygen -lf ~/.ssh/state_key_final | sed 's/^/  /'
+          echo
+
+      # ------------------------------------------------------------------
+      # 3. La clave PÚBLICA derivada: es la que debe estar en GitHub
+      # ------------------------------------------------------------------
+      - name: Clave pública que debería estar en el repositorio de estado
+        run: |
+          echo "Esta es la clave pública que corresponde al secreto."
+          echo "Compárala con la que pegaste en GitHub (Settings -> Deploy keys):"
+          echo
+          ssh-keygen -y -f ~/.ssh/state_key_final | sed 's/^/  /'
+          echo
+          echo "Si NO coincide carácter a carácter, el secreto y la deploy key no son"
+          echo "la misma pareja: hay que corregir uno de los dos."
+
+      # ------------------------------------------------------------------
+      # 4. Prueba real de conexión. El mensaje de GitHub dice a qué repositorio
+      #    da acceso la clave, lo que delata si está puesta en el sitio erróneo.
+      # ------------------------------------------------------------------
+      - name: Probar la conexión con GitHub
+        env:
+          STATE_REPO: ${{ secrets.STATE_REPO }}
+        run: |
+          printf 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n' > ~/.ssh/known_hosts
+          printf 'github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=\n' >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          SSH="ssh -i $HOME/.ssh/state_key_final -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes"
+          # git necesita que se le diga qué clave usar: por su cuenta busca las
+          # de siempre (~/.ssh/id_ed25519, id_rsa...) y no encontraría esta.
+          export GIT_SSH_COMMAND="$SSH"
+
+          echo "=== 1) ¿Autentica la clave contra GitHub? ==="
+          SALIDA=$($SSH -T git@github.com 2>&1 || true)
+          echo "$SALIDA" | sed 's/^/  /'
+          echo
+
+          if echo "$SALIDA" | grep -qi "successfully authenticated"; then
+            echo "✅ La clave está dada de alta en GitHub."
+            echo
+            echo "=== 2) ¿A qué repositorio da acceso? ==="
+            echo "GitHub lo dice en el mensaje de arriba, con el formato"
+            echo "'Hi usuario/repositorio!'. Debe decir: $STATE_REPO"
+            echo
+            echo "=== 3) ¿Se puede leer ese repositorio? ==="
+            # Sin pedir una referencia concreta: un repositorio recién creado no
+            # tiene commits, y 'ls-remote ... HEAD' falla en ese caso aunque el
+            # acceso sea correcto. Preguntar por todas las referencias funciona
+            # igual con el repositorio vacío que con el que ya tiene estado.
+            if SALIDA_LS=$(git ls-remote "git@github.com:${STATE_REPO}.git" 2>&1); then
+              echo "✅ Se puede acceder a $STATE_REPO"
+              if [ -z "$SALIDA_LS" ]; then
+                echo "   (el repositorio está vacío todavía: es lo normal la primera vez)"
+              else
+                echo "   referencias encontradas:"
+                echo "$SALIDA_LS" | sed 's/^/     /'
+              fi
+              echo
+              echo "La credencial está bien. Si el monitor sigue fallando al guardar,"
+              echo "revisa que la deploy key tenga marcada la casilla 'Allow write access'."
+            else
+              echo "::error::La clave autentica, pero no se puede leer $STATE_REPO."
+              echo "$SALIDA_LS" | sed 's/^/  /'
+              echo
+              echo "Comprueba que el nombre del secreto STATE_REPO es exacto"
+              echo "(usuario/repositorio, sin https:// ni .git) y que la deploy key"
+              echo "está añadida EN ESE repositorio."
+              exit 1
+            fi
+          else
+            echo "::error::GitHub rechaza la clave (Permission denied)."
+            echo
+            echo "La clave es válida y la verificación del host pasa, así que el"
+            echo "problema es que esa clave NO está añadida como deploy key."
+            echo
+            echo "Revisa, en este orden:"
+            echo "  1. ¿Está añadida en el repositorio de ESTADO (no en el del código)?"
+            echo "     Repositorio de estado -> Settings -> Deploy keys."
+            echo "  2. ¿La clave pública que pegaste coincide con la de más arriba?"
+            echo "  3. Si la clave se añadió a otro repositorio, GitHub la rechazó con"
+            echo "     'Key is already in use': habría que borrarla de allí y añadirla aquí."
+            exit 1
+          fi

@@ -187,6 +187,17 @@ En el log de la primera ejecución debe aparecer
 `Estado en tu-usuario/etoro-monitor-estado, con clave SSH (deploy key)`
 (o `con token`).
 
+#### Si algo falla, hay un diagnóstico
+
+En **Actions → Diagnóstico de la credencial de estado → Run workflow**. No
+envía nada a Telegram ni toca el estado: solo revisa la credencial y prueba la
+conexión, diciéndote qué está mal.
+
+Entre otras cosas comprueba si el contenido del secreto es realmente una
+clave, y **muestra la clave pública que corresponde a ese secreto**, para que
+puedas compararla con la que pegaste en GitHub. Si no coinciden, no son la
+misma pareja y hay que corregir una de las dos.
+
 **Si no defines ninguno de los dos**, el estado se guarda aquí. Eso está bien si
 este repositorio ya es **privado**.
 

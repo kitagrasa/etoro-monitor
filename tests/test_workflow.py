@@ -185,6 +185,52 @@ def test_el_clon_de_la_deploy_key_verifica_el_host(monitor):
     assert "chmod 600 ~/.ssh/state_key" in texto
 
 
+def test_el_clon_le_dice_a_git_que_use_la_clave(monitor):
+    """Regresión de un fallo que se escapó una vez.
+
+    `git` NO usa la clave de la deploy key por su cuenta: busca las de
+    siempre (~/.ssh/id_ed25519, id_rsa...). Si no se le indica, el clon falla
+    con 'Permission denied (publickey)' aunque la deploy key esté bien puesta
+    en GitHub. Hay que pasarle la clave explícitamente.
+    """
+    preparar = [
+        p for p in pasos(monitor) if "STATE_DEPLOY_KEY" in (p.get("env") or {})
+    ][0]
+    texto = preparar["run"]
+
+    # La clave debe pasarse a git para el clon inicial...
+    assert "GIT_SSH_COMMAND" in texto, (
+        "el clon no recibe la clave: fallará con Permission denied"
+    )
+    # ...y quedar configurada en el repositorio clonado para el push.
+    assert "core.sshCommand" in texto, (
+        "el push posterior no sabe qué clave usar"
+    )
+
+
+def test_la_identidad_del_commit_se_configura_dentro_del_repo_de_estado(monitor):
+    """Regresión: el commit se hace en OTRO repositorio.
+
+    Si `git config user.email` se ejecuta fuera de .state-repo, el commit
+    falla con "Author identity unknown", porque cada repositorio tiene su
+    propia configuración.
+    """
+    guardar = [p for p in pasos(monitor) if p.get("name") == "Guardar el estado"][0]
+    run = guardar["run"]
+
+    # La línea del cd...
+    indice_cd = run.index("cd .state-repo")
+    # ...debe ir ANTES de configurar la identidad del modo remoto.
+    assert run.index("git config user.name") > indice_cd, (
+        "la identidad se configura antes de entrar en .state-repo: el commit "
+        "fallaría con 'Author identity unknown'"
+    )
+    # Y el modo local también tiene que configurarla.
+    assert run.count("git config user.name") >= 2, (
+        "falta configurar la identidad en el modo local"
+    )
+
+
 def test_las_claves_de_github_estan_bien_formadas(monitor):
     """Un solo carácter mal y fallaría la verificación del host.
 
