@@ -1,29 +1,32 @@
 name: Monitor eToro -> Telegram
 
 # ---------------------------------------------------------------------------
-# Revisa las carteras públicas de los usuarios de watchlist.md (una persona
-# por línea) y manda un mensaje a Telegram cuando alguno compra, vende,
-# amplía o reduce una posición.
+# Revisa las carteras públicas de los usuarios de watchlist.md (una persona por
+# línea) y manda un mensaje a Telegram cuando alguno compra, vende, amplía o
+# reduce una posición.
 #
 # NO se ejecuta por sí solo: lo dispara cron-job.org (ver README).
 #
-# No hace login en eToro ni requiere KYC: solo lee los endpoints públicos
-# que carga la propia web de eToro.
+# No hace login en eToro ni requiere KYC: solo lee los endpoints públicos que
+# carga la propia web de eToro.
+#
+# ---------------------------------------------------------------------------
+# DÓNDE VIVE EL ESTADO (esto es lo que permite tener el repo público)
+# ---------------------------------------------------------------------------
+# El monitor necesita recordar la foto anterior de cada cartera. Esa foto
+# contiene a quién sigues y cuánto tiene de cada activo, así que NO conviene
+# publicarla.
+#
+#   * Con los secretos STATE_REPO y STATE_REPO_TOKEN definidos:
+#     el estado vive en un repositorio PRIVADO aparte. Este repositorio puede
+#     ser público (los minutos de Actions en repos públicos son ilimitados y
+#     gratis) sin exponer los datos de nadie.
+#
+#   * Sin esos secretos: el estado se guarda aquí, como antes. Perfecto si
+#     este repositorio ya es privado.
 # ---------------------------------------------------------------------------
 on:
-  # -------------------------------------------------------------------------
-  # A PROPÓSITO no hay 'schedule'.
-  #
-  # Este workflow no arranca nunca por su cuenta: solo se ejecuta cuando algo
-  # lo dispara desde fuera, que en la práctica es cron-job.org llamando a la
-  # API de GitHub. También sirve el botón "Run workflow" de la pestaña
-  # Actions, para probarlo a mano.
-  #
-  # Efecto útil: las ejecuciones disparadas así entran por 'workflow_dispatch',
-  # que es lo que mira el paso de abajo para añadir '--force'. Es decir, el
-  # horario de watchlist.yml no bloquea estas pasadas: el horario lo manda
-  # cron-job.org, que sí entiende de zonas horarias y de cambios de hora.
-  # -------------------------------------------------------------------------
+  # A propósito no hay 'schedule': lo dispara cron-job.org.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -47,9 +50,13 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Rama del repositorio de estado donde se guarda la foto de las carteras.
+      # Si tu repositorio de estado usa 'master' en vez de 'main', cámbialo aquí.
+      STATE_BRANCH: main
 
     steps:
-      - name: Descargar el repositorio
+      - name: Descargar el código
         uses: actions/checkout@v4
 
       - name: Preparar Python
@@ -62,19 +69,63 @@ jobs:
         run: pip install -r requirements.txt
 
       # ------------------------------------------------------------------
-      # Aquí está todo el trabajo. Los secretos se leen del entorno:
-      #   TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID
+      # Trae el estado desde el repositorio privado, si está configurado.
+      # STATE_REPO puede ser un secreto o una variable del repositorio
+      # ("Settings -> Secrets and variables -> Actions").
+      # ------------------------------------------------------------------
+      - name: Preparar el estado
+        id: estado
+        env:
+          STATE_REPO: ${{ secrets.STATE_REPO || vars.STATE_REPO }}
+          STATE_REPO_TOKEN: ${{ secrets.STATE_REPO_TOKEN }}
+        run: |
+          set -e
+          if [ -n "$STATE_REPO" ] && [ -n "$STATE_REPO_TOKEN" ]; then
+            echo "Estado en el repositorio privado: $STATE_REPO"
+            git clone --quiet \
+              "https://x-access-token:${STATE_REPO_TOKEN}@github.com/${STATE_REPO}.git" \
+              .state-repo
+            # El token no se queda guardado en la configuración de git.
+            git -C .state-repo remote set-url origin "https://github.com/${STATE_REPO}.git"
+
+            # El clon NO siempre deja el estado a mano: si el repositorio está
+            # vacío, o si su rama por defecto no es la que usamos aquí, git
+            # avisa "remote HEAD refers to nonexistent ref" y no descarga nada.
+            # Eso sería grave: el monitor creería que es la primera vez en cada
+            # ejecución y repetiría avisos. Nos ponemos en la rama del estado a
+            # propósito, exista o no todavía.
+            git -C .state-repo checkout --quiet -B "$STATE_BRANCH" \
+              "origin/$STATE_BRANCH" 2>/dev/null \
+              || git -C .state-repo checkout --quiet -B "$STATE_BRANCH"
+
+            # Primera vez: el repositorio está vacío y hay que crear los ficheros.
+            [ -f .state-repo/state.json ]    || printf '{\n  "version": 2,\n  "instruments": {},\n  "users": {}\n}\n'    > .state-repo/state.json
+            [ -f .state-repo/cooldown.json ] || printf '{\n  "version": 1,\n  "sent": {}\n}\n' > .state-repo/cooldown.json
+
+            echo "state_path=.state-repo/state.json" >> "$GITHUB_OUTPUT"
+            echo "modo=repo_privado" >> "$GITHUB_OUTPUT"
+          elif [ -n "$STATE_REPO" ] || [ -n "$STATE_REPO_TOKEN" ]; then
+            echo "::warning::STATE_REPO y STATE_REPO_TOKEN deben estar los dos. Uso el estado de este repositorio."
+            echo "state_path=state/state.json" >> "$GITHUB_OUTPUT"
+            echo "modo=local" >> "$GITHUB_OUTPUT"
+          else
+            echo "Sin STATE_REPO/STATE_REPO_TOKEN: el estado se guarda en este repositorio."
+            echo "state_path=state/state.json" >> "$GITHUB_OUTPUT"
+            echo "modo=local" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ------------------------------------------------------------------
+      # Aquí está todo el trabajo. Los secretos se leen del entorno.
       # ------------------------------------------------------------------
       - name: Revisar carteras y avisar por Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          LOG_LEVEL: INFO
-          # Un usuario por línea en watchlist.md.
+          # Un usuario por línea en watchlist.md; o este secreto, que manda.
           ETORO_WATCHLIST_MD: watchlist.md
-          # Opcional: si defines el secreto ETORO_USERS, manda sobre el .md
-          # y tu lista de seguimiento no queda guardada en el repositorio.
           ETORO_USERS: ${{ secrets.ETORO_USERS }}
+          ETORO_STATE: ${{ steps.estado.outputs.state_path }}
+          LOG_LEVEL: INFO
         run: |
           ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then
@@ -83,36 +134,60 @@ jobs:
           if [ "${{ inputs.reset_state }}" = "true" ]; then
             ARGS="$ARGS --reset"
           fi
-          # Si lo lanzas a mano desde la pestaña Actions, se ejecuta siempre:
-          # el horario solo limita las pasadas automáticas del cron.
+          # Si lo lanzas a mano desde la pestaña Actions, se ejecuta siempre.
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             ARGS="$ARGS --force"
           fi
           python -m etoro_monitor check $ARGS
 
       # ------------------------------------------------------------------
-      # El fichero de estado solo cambia cuando hay movimientos reales, así
-      # que esto solo hace commit cuando alguien ha comprado o vendido.
-      # Se ejecuta incluso si el paso anterior falla, para no perder el
-      # estado parcial (y no repetir avisos en la siguiente vuelta).
+      # El estado solo cambia cuando hay operaciones, así que esto solo
+      # escribe cuando alguien ha comprado o vendido de verdad.
+      # Se ejecuta aunque el paso anterior falle, para no perder el estado
+      # parcial (y no repetir avisos en la siguiente vuelta).
       # ------------------------------------------------------------------
       - name: Guardar el estado
         if: always()
+        env:
+          STATE_REPO: ${{ secrets.STATE_REPO || vars.STATE_REPO }}
+          STATE_REPO_TOKEN: ${{ secrets.STATE_REPO_TOKEN }}
+          MODO: ${{ steps.estado.outputs.modo }}
         run: |
-          if [ -z "$(git status --porcelain state/state.json)" ]; then
-            echo "El estado no ha cambiado: no hay nada que guardar."
-            exit 0
-          fi
-
+          set -e
           git config user.name  "etoro-monitor[bot]"
           git config user.email "etoro-monitor@users.noreply.github.com"
-          git add state/state.json
-          git commit -m "estado: $(date -u '+%Y-%m-%d %H:%M UTC') [skip ci]"
+          MENSAJE="estado: $(date -u '+%Y-%m-%d %H:%M UTC') [skip ci]"
 
-          # En eventos 'schedule' el checkout deja la HEAD desacoplada, así que
-          # empujamos explícitamente a la rama y rebasamos por si alguien ha
-          # tocado el repositorio mientras corríamos.
-          BRANCH="${GITHUB_REF_NAME:-main}"
-          git fetch --quiet origin "$BRANCH" || true
-          git rebase "origin/$BRANCH" >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1 || true
-          git push origin "HEAD:$BRANCH"
+          if [ "$MODO" = "repo_privado" ]; then
+            if [ ! -d .state-repo ]; then
+              echo "::error::No se pudo preparar el repositorio de estado."
+              exit 1
+            fi
+            cd .state-repo
+            git add -A
+            if git diff --cached --quiet; then
+              echo "Sin cambios en el estado."
+              exit 0
+            fi
+            git commit --quiet -m "$MENSAJE"
+            # El token solo se pone en la URL para este push.
+            git remote set-url origin \
+              "https://x-access-token:${STATE_REPO_TOKEN}@github.com/${STATE_REPO}.git"
+            git push --quiet origin "HEAD:$STATE_BRANCH"
+            git remote set-url origin "https://github.com/${STATE_REPO}.git"
+            echo "Estado guardado en $STATE_REPO (rama $STATE_BRANCH)"
+          else
+            git add state/state.json state/cooldown.json
+            if git diff --cached --quiet; then
+              echo "Sin cambios en el estado."
+              exit 0
+            fi
+            git commit --quiet -m "$MENSAJE"
+            # En eventos 'workflow_dispatch' el checkout puede dejar la HEAD
+            # desacoplada: se empuja explícitamente a la rama.
+            BRANCH="${GITHUB_REF_NAME:-main}"
+            git fetch --quiet origin "$BRANCH" || true
+            git rebase "origin/$BRANCH" >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1 || true
+            git push --quiet origin "HEAD:$BRANCH"
+            echo "Estado guardado en este repositorio."
+          fi

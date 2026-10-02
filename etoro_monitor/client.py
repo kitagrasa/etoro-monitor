@@ -30,6 +30,10 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://www.etoro.com"
 
+# Si un 429 pide esperar más que esto, no se espera: se abandona la pasada.
+# El workflow de GitHub tiene 15 minutos de tope y quedaría matado a mitad.
+MAX_WAIT_RETRY_AFTER = 60.0
+
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36"
@@ -113,20 +117,77 @@ class EtoroClient:
                 response = self.session.get(url, params=params, timeout=self.timeout)
             except (requests.ConnectionError, requests.Timeout) as exc:
                 last_error = exc
-                log.warning("Fallo de red (%s), reintento %s/%s", exc, attempt + 1, self.max_retries)
+                # attempt=0 es el primer intento; a partir de ahí, reintentos.
+                if attempt < self.max_retries:
+                    log.warning(
+                        "Fallo de red (%s). Reintento %s/%s",
+                        exc,
+                        attempt + 1,
+                        self.max_retries,
+                    )
                 time.sleep(min(2**attempt, 8) + random.random())
                 continue
             finally:
                 self.request_count += 1
 
+            if attempt and attempt <= self.max_retries:
+                log.info("Reintento %s/%s correcto: %s", attempt, self.max_retries, url)
+
             status = response.status_code
 
-            if status in (429, 500, 502, 503, 504):
-                wait = _retry_after(response) or min(2**attempt, 15)
-                log.warning("HTTP %s en %s, espero %.1fs", status, url, wait)
-                last_error = EtoroError(f"HTTP {status} en {url}")
-                time.sleep(wait + random.random())
-                continue
+            # ------------------------------------------------------------
+            # eToro nos está limitando (429). Puede pedir esperas enormes
+            # (hemos visto retry-after de 2500 s, más de 40 minutos).
+            #
+            # Esperar aquí sería un error: el workflow tiene 15 minutos de
+            # tope, así que GitHub mataría el job a mitad de espera. Es
+            # mucho mejor rendirse ya, con un mensaje claro, y dejar que la
+            # siguiente pasada del cron lo reintente.
+            # ------------------------------------------------------------
+            if status == 429:
+                pedido = _retry_after(response)
+                if pedido is not None and pedido > MAX_WAIT_RETRY_AFTER:
+                    raise Blocked(
+                        f"eToro ha limitado las peticiones (HTTP 429). Pide esperar "
+                        f"{pedido:.0f} s (~{pedido / 60:.0f} min). Se abandona esta "
+                        f"pasada; la siguiente lo reintentará. Si se repite, baja "
+                        f"la frecuencia del cron o sube http.delay_seconds."
+                    )
+                await_s = pedido if pedido is not None else min(2**attempt, 15)
+                if attempt < self.max_retries:
+                    log.warning(
+                        "HTTP 429 en %s; espero %.0fs y reintento (%s/%s)",
+                        url,
+                        await_s,
+                        attempt + 1,
+                        self.max_retries,
+                    )
+                    time.sleep(await_s + random.random())
+                    last_error = EtoroError(f"HTTP 429 en {url}")
+                    continue
+                raise Blocked(
+                    f"eToro sigue limitando las peticiones tras "
+                    f"{self.max_retries + 1} intentos (HTTP 429 en {url})"
+                )
+
+            # Errores temporales del servidor: aquí sí compensa reintentar.
+            if status in (500, 502, 503, 504):
+                if attempt < self.max_retries:
+                    wait = min(2**attempt, 8) + random.random()
+                    log.warning(
+                        "HTTP %s en %s; reintento %s/%s en %.1fs",
+                        status,
+                        url,
+                        attempt + 1,
+                        self.max_retries,
+                        wait,
+                    )
+                    time.sleep(wait)
+                    last_error = EtoroError(f"HTTP {status} en {url}")
+                    continue
+                raise EtoroError(
+                    f"HTTP {status} en {url} tras {self.max_retries + 1} intentos"
+                )
 
             return response
 

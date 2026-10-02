@@ -176,6 +176,70 @@ def test_el_estado_inicial_esta_vacio():
     assert datos.get("instruments") in ({}, None)
 
 
+def _usuarios_que_sigo() -> list[str]:
+    """Los usuarios de la lista de seguimiento (fichero y/o secreto).
+
+    Se usa el mismo parser que en producción, para que las reglas sean las
+    mismas: comentarios HTML, líneas con #, viñetas, etc.
+    """
+    import os
+    import re
+
+    from etoro_monitor.watchlist import load_usernames
+
+    usuarios: list[str] = []
+    md = RAIZ / "watchlist.md"
+    if md.exists():
+        usuarios += load_usernames(md)
+    for parte in re.split(r"[,\s]+", os.environ.get("ETORO_USERS", "")):
+        if parte.strip():
+            usuarios.append(parte.strip())
+    return usuarios
+
+
+def test_los_usuarios_que_sigo_no_se_cuelan_en_el_codigo():
+    """La lista de seguimiento solo debe estar en watchlist.md.
+
+    Si escribes tu usuario real en el README, en un comentario del código o en
+    un test, este guardián lo detecta: el repositorio debe poder ser público
+    sin revelar a quién sigues. (Este test existe porque el propio README llegó
+    a llevar un usuario real como ejemplo.)
+    """
+    usuarios = _usuarios_que_sigo()
+    if not usuarios:
+        return  # lista vacía: no hay nada que proteger
+    permitidos = {RAIZ / "watchlist.md"}
+    encontrados = []
+    for ruta in ficheros_del_proyecto():
+        if ruta in permitidos:
+            continue
+        texto = leer_sin_bloques_ignorados(ruta)
+        for usuario in usuarios:
+            if usuario.lower() in texto.lower():
+                encontrados.append(f"{ruta.relative_to(RAIZ)}: contiene '{usuario}'")
+    assert encontrados == [], (
+        "Hay usuarios de tu lista de seguimiento en el repositorio: " + "; ".join(encontrados)
+    )
+
+
+def test_el_cooldown_inicial_esta_vacio():
+    """cooldown.json se versiona y lleva nombres de usuario en sus claves.
+
+    Si se publicara con datos, revelaría a quién sigues y qué problemas has
+    tenido con cada persona.
+    """
+    import json
+
+    ruta = RAIZ / "state" / "cooldown.json"
+    if not ruta.exists():
+        return
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    assert datos.get("sent") == {}, (
+        "state/cooldown.json contiene avisos previos (con nombres de usuario): "
+        "revísalo antes de publicar el repositorio"
+    )
+
+
 def test_el_gitignore_cubre_lo_volatil():
     contenido = (RAIZ / ".gitignore").read_text(encoding="utf-8")
     assert ".env" in contenido

@@ -15,13 +15,15 @@ import argparse
 import logging
 import os
 import sys
+from pathlib import Path
 from typing import Optional, Sequence
 
 from .client import Blocked, EtoroClient, EtoroError, PrivatePortfolio, UserNotFound
 from .config import Config, load_config
+from .cooldown import BLOCKED_KEY, STATE_ERROR_KEY, CooldownStore
 from .monitor import Monitor
 from .render import now_utc, render_portfolio_table
-from .state import RuntimeState, State
+from .state import RuntimeState, State, StateCorruptError, cooldown_path
 from .telegram import TelegramError, TelegramNotifier
 
 DEFAULT_STATE = "state/state.json"
@@ -50,6 +52,28 @@ def build_client(config: Config) -> EtoroClient:
     )
 
 
+def _notifier() -> TelegramNotifier:
+    return TelegramNotifier(
+        os.environ.get("TELEGRAM_BOT_TOKEN"),
+        os.environ.get("TELEGRAM_CHAT_ID"),
+    )
+
+
+def _make_sender(args: argparse.Namespace, notifier: TelegramNotifier):
+    """Devuelve la función de envío (imprime en --dry-run)."""
+
+    def send(text: str) -> None:
+        if args.dry_run:
+            print("-" * 72)
+            print(text)
+            print("-" * 72)
+            return
+        notifier.send(text)
+        log.info("Mensaje enviado a Telegram")
+
+    return send
+
+
 # ---------------------------------------------------------------------- #
 # check
 # ---------------------------------------------------------------------- #
@@ -59,8 +83,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     users = args.users or config.users
     log.info("Siguiendo a %s (desde %s)", config.describe_users(), config.users_origin)
 
-    # Ventana horaria (hora de Madrid). El cron de GitHub es UTC y no entiende
-    # de cambios de hora, así que el recorte fino se hace aquí.
+    # Ventana horaria (hora local de la zona configurada).
     if not args.force and not config.schedule.is_open():
         log.info(
             "Fuera de la ventana de ejecución (%s). No se hace nada.",
@@ -68,21 +91,15 @@ def cmd_check(args: argparse.Namespace) -> int:
         )
         return 0
 
-    state = State.load(args.state)
-    if args.reset:
-        log.warning("--reset: se descarta el estado anterior (%s)", args.state)
-        state = State(path=state.path)
+    notifier = _notifier()
+    runtime = RuntimeState(Path(args.state).with_suffix(".runtime.json"))
+    cooldown = CooldownStore.load(cooldown_path(args.state))
 
-    runtime = RuntimeState(state.path.with_suffix(".runtime.json"))
-
-    notifier = TelegramNotifier(
-        os.environ.get("TELEGRAM_BOT_TOKEN"),
-        os.environ.get("TELEGRAM_CHAT_ID"),
-    )
-
-    # Sin Telegram no hay avisos posibles. Fallar aquí, con un mensaje claro,
-    # es mucho mejor que recorrer todas las carteras y terminar en verde sin
-    # haber enviado nada (el fallo silencioso más frustrante de todos).
+    # ------------------------------------------------------------------
+    # Sin Telegram no hay avisos posibles. Fallar aquí, con un mensaje
+    # claro, es mucho mejor que recorrer todas las carteras y terminar en
+    # verde sin haber enviado nada (el fallo silencioso más frustrante).
+    # ------------------------------------------------------------------
     if not args.dry_run and not notifier.configured:
         faltan = [
             nombre
@@ -105,66 +122,127 @@ def cmd_check(args: argparse.Namespace) -> int:
     if args.dry_run:
         log.info("Modo --dry-run: los mensajes se imprimen, no se envían")
 
-    def send(text: str) -> None:
-        if args.dry_run:
-            print("-" * 72)
-            print(text)
-            print("-" * 72)
-            return
-        notifier.send(text)
-        log.info("Mensaje enviado a Telegram")
+    if args.reset:
+        log.warning("--reset: se descarta el estado anterior (%s)", args.state)
+
+    # ------------------------------------------------------------------
+    # Fichero de estado. Si está dañado no se toca (para poder repararlo) y
+    # se avisa una sola vez por periodo, en vez de dejar el monitor mudo.
+    # ------------------------------------------------------------------
+    state: State
+    try:
+        state = State.load(args.state)
+    except StateCorruptError as exc:
+        log.error("%s", exc)
+        log.error(
+            "No toco el fichero para que puedas repararlo. Soluciones:\n"
+            "  · Corrígelo a mano en %s.\n"
+            "  · O lanza el monitor con --reset (o el workflow marcando "
+            "'reset_state') para empezar de cero: recibirás la línea base otra "
+            "vez.",
+            exc.path,
+        )
+        _alert_state_error(
+            args, config, cooldown, notifier, exc
+        )
+        cooldown.save()
+        return 1
+
+    # El estado se ha podido leer: si antes avisamos de que estaba roto, ya no.
+    cooldown.forget(STATE_ERROR_KEY)
+
+    if args.reset:
+        state = State(path=state.path)
 
     client = build_client(config)
     monitor = Monitor(
         client,
         state,
         runtime=runtime,
-        notify=send,
+        cooldown=cooldown,
+        notify=_make_sender(args, notifier),
         notify_errors=config.alerts.notify_on_error and not args.dry_run,
+        error_cooldown_minutes=config.alerts.error_cooldown_minutes,
         quiet_baseline=args.quiet_baseline or not config.alerts.notify_on_baseline,
     )
 
     exit_code = 0
+    total = 0
+    reports = []
     try:
-        reports = monitor.run(users)
+        # Con `--user` solo se revisa a esa persona, así que NO se puede podar
+        # el resto de la lista: borraría del estado a todos los demás.
+        reports = monitor.run(users, prune=not args.users)
+        for report in reports:
+            if report.error:
+                exit_code = max(exit_code, 1)
+                continue
+            total += len(report.changes)
+            for change in report.changes:
+                log.info(
+                    "  %-9s %s%s",
+                    change.kind.upper(),
+                    change.instrument_id,
+                    " (CORTO)" if change.is_short else "",
+                )
+    except Blocked as exc:
+        # eToro bloquea por captcha o por ir demasiado rápido. Es un problema
+        # del sitio, no de una persona: un solo aviso, con su propio cooldown.
+        log.error("eToro ha bloqueado las peticiones: %s", exc)
+        monitor.notify_error(str(exc), key=BLOCKED_KEY)
+        exit_code = 1
     except EtoroError as exc:
         log.error("Error global: %s", exc)
-        monitor.notify_error_once(str(exc), cooldown_minutes=config.alerts.error_cooldown_minutes)
-        runtime.save()
-        return 1
+        monitor.notify_error(str(exc), key=STATE_ERROR_KEY)
+        exit_code = 1
+    else:
+        # La pasada ha ido bien: si antes avisamos de un bloqueo, ya no.
+        cooldown.forget(BLOCKED_KEY)
     finally:
         client.close()
 
-    total_changes = 0
-    for report in reports:
-        if report.error:
-            exit_code = max(exit_code, 1)
-            monitor.notify_error_once(
-                f"No he podido leer la cartera de {report.username}: {report.error}",
-                cooldown_minutes=config.alerts.error_cooldown_minutes,
-            )
-            continue
-        total_changes += len(report.changes)
-        for change in report.changes:
-            position = change.after or change.before
-            log.info(
-                "  %-9s %s x%s", change.kind.upper(), change.instrument_id,
-                position.amount if position else "?",
-            )
-
     changed = state.save()
+    cooldown.prune()
+    cooldown.save()
     runtime.set("last_run_at", _utc_now())
     runtime.save()
 
     log.info(
-        "Resumen: %s usuario(s), %s cambio(s), %s peticiones HTTP, estado %s",
+        "Resumen: %s usuario(s), %s operación(es), %s peticiones HTTP, estado %s",
         len(reports),
-        total_changes,
+        total,
         client.request_count,
         "actualizado" if changed else "sin novedades",
     )
     print(f"STATE_CHANGED={str(changed).lower()}")
     return exit_code
+
+
+def _alert_state_error(args, config, cooldown, notifier, exc: StateCorruptError) -> None:
+    """Avisa de que el estado está dañado, respetando el cooldown."""
+    if args.dry_run:
+        print("-" * 72)
+        print(f"No puedo leer mi fichero de estado: {exc}")
+        print("-" * 72)
+        return
+    # Se construye un Monitor mínimo solo para reutilizar su lógica de avisos.
+    cliente = build_client(config)
+    try:
+        avisador = Monitor(
+            cliente,
+            State(path=Path(args.state)),
+            cooldown=cooldown,
+            notify=_make_sender(args, notifier),
+            notify_errors=config.alerts.notify_on_error,
+            error_cooldown_minutes=config.alerts.error_cooldown_minutes,
+        )
+        avisador.notify_error(
+            f"No puedo leer mi fichero de estado ({exc.path.name}), así que dejo "
+            f"de revisar carteras hasta que lo arregles.\n\nDetalle: {exc.causa}",
+            key=STATE_ERROR_KEY,
+        )
+    finally:
+        cliente.close()
 
 
 # ---------------------------------------------------------------------- #
@@ -175,7 +253,11 @@ def cmd_show(args: argparse.Namespace) -> int:
         args.config, getattr(args, "users_file", None), require_users=False
     )
     client = build_client(config)
-    state = State.load(args.state)
+    try:
+        state = State.load(args.state)
+    except StateCorruptError as exc:
+        log.error("%s", exc)
+        return 2
     monitor = Monitor(client, state, notify=lambda _t: None)
     try:
         user = monitor._resolve(args.username)
@@ -186,9 +268,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     finally:
         client.close()
 
-    labels = {
-        iid: state.instrument_label(iid) for iid in snapshot.instrument_ids
-    }
+    labels = {iid: state.instrument_label(iid) for iid in snapshot.instrument_ids}
     print(render_portfolio_table(user, snapshot, instrument_labels=labels))
     return 0
 
@@ -243,21 +323,19 @@ def cmd_ping(args: argparse.Namespace) -> int:
         print(f"✅ /api/logininfo/v1.1/users/{username} -> CID {cid}")
 
         portfolio = client.get_portfolio(cid)
-        instruments = portfolio.get("AggregatedPositions") or []
-        print(f"✅ /live/public/portfolios -> {len(instruments)} activos")
+        activos = portfolio.get("AggregatedPositions") or []
+        print(f"✅ /live/public/portfolios -> {len(activos)} activos")
 
-        exposure = client.get_exposure(cid)
-        print(f"✅ /live/public/portfolios/exposure -> {len(exposure)} pesos")
-
-        if instruments:
-            instrument_id = int(instruments[0]["InstrumentID"])
+        if activos:
+            instrument_id = int(activos[0]["InstrumentID"])
             positions = client.get_positions(cid, instrument_id)
-            print(
-                f"✅ /live/public/positions?instrumentId={instrument_id} -> "
-                f"{len(positions.get('PublicPositions') or [])} posiciones"
-            )
+            n = len(positions.get("PublicPositions") or [])
+            print(f"✅ /live/public/positions?instrumentId={instrument_id} -> {n} posiciones")
             meta = client.get_instrument(instrument_id)
-            print(f"✅ /instrumentsmetadata -> {meta.get('InstrumentDisplayName') if meta else '?'}")
+            print(
+                "✅ /instrumentsmetadata -> "
+                f"{meta.get('InstrumentDisplayName') if meta else '?'}"
+            )
     except (UserNotFound, PrivatePortfolio, Blocked, EtoroError) as exc:
         print(f"❌ {exc}")
         ok = False
@@ -267,28 +345,9 @@ def cmd_ping(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
-def cmd_users(args: argparse.Namespace) -> int:
-    """Muestra a quién se sigue, según watchlist.md."""
-    try:
-        config = load_config(args.config, getattr(args, "users_file", None))
-    except (FileNotFoundError, ValueError) as exc:
-        print(f"❌ {exc}")
-        return 1
-
-    print(f"\nSiguiendo a {len(config.users)} usuario(s) desde {config.users_origin}:\n")
-    for index, username in enumerate(config.users, start=1):
-        print(f"  {index:>2}. {username:<24} "
-              f"https://www.etoro.com/people/{username.lower()}/portfolio")
-    print()
-    return 0
-
-
 def cmd_notify_test(args: argparse.Namespace) -> int:
     """Manda un mensaje de prueba a Telegram (para validar los secretos)."""
-    notifier = TelegramNotifier(
-        os.environ.get("TELEGRAM_BOT_TOKEN"),
-        os.environ.get("TELEGRAM_CHAT_ID"),
-    )
+    notifier = _notifier()
     if not notifier.configured:
         print(
             "❌ Faltan TELEGRAM_BOT_TOKEN y/o TELEGRAM_CHAT_ID.\n"
@@ -313,6 +372,37 @@ def cmd_notify_test(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_users(args: argparse.Namespace) -> int:
+    """Muestra a quién se sigue, según watchlist.md."""
+    try:
+        config = load_config(args.config, getattr(args, "users_file", None))
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"❌ {exc}")
+        return 1
+
+    print(f"\nSiguiendo a {len(config.users)} usuario(s) desde {config.users_origin}:\n")
+    for index, username in enumerate(config.users, start=1):
+        print(
+            f"  {index:>2}. {username:<24} "
+            f"https://www.etoro.com/people/{username.lower()}/portfolio"
+        )
+    print()
+
+    # De paso, avisamos de a quién se está olvidando ya en el estado.
+    try:
+        state = State.load(args.state)
+    except StateCorruptError as exc:
+        print(f"⚠️  {exc}\n")
+        return 0
+    en_estado = sorted(state.users)
+    actuales = {u.lower() for u in config.users}
+    sobrantes = [n for n in en_estado if n not in actuales]
+    if sobrantes:
+        print("En el estado pero ya no en la lista (se borrarán en el próximo check):")
+        for nombre in sobrantes:
+            print(f"  · {nombre}")
+        print()
+    return 0
 
 
 def _utc_now() -> str:

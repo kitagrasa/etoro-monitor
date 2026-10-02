@@ -1,9 +1,18 @@
-"""Modelos de datos del monitor."""
+"""Modelos de datos del monitor.
+
+La pieza clave es `Asset`: lo mínimo que hay que recordar de un activo para
+detectar operaciones sin falsos positivos. Ver el comentario de esa clase.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Optional
+
+# Cuántos decimales se conservan de las unidades. eToro publica las unidades
+# con 6 decimales; 8 da margen de sobra y hace que la comparación sea exacta
+# (evita diferencias de 1e-15 al sumar muchas posiciones en distinto orden).
+UNITS_DECIMALS = 8
 
 
 @dataclass(frozen=True)
@@ -69,14 +78,11 @@ class EtoroUser:
 
 @dataclass(frozen=True)
 class Instrument:
-    """Activo (instrumento) de eToro."""
+    """Activo (instrumento) de eToro, solo para ponerle nombre a los avisos."""
 
     instrument_id: int
     name: str
     symbol: str = ""
-    instrument_type_id: int = 0
-    industry_id: int = 0
-    exchange_id: int = 0
 
     @property
     def label(self) -> str:
@@ -89,9 +95,6 @@ class Instrument:
             "instrument_id": self.instrument_id,
             "name": self.name,
             "symbol": self.symbol,
-            "instrument_type_id": self.instrument_type_id,
-            "industry_id": self.industry_id,
-            "exchange_id": self.exchange_id,
         }
 
     @classmethod
@@ -100,57 +103,58 @@ class Instrument:
             instrument_id=int(data["instrument_id"]),
             name=data.get("name") or f"Instrumento {data['instrument_id']}",
             symbol=data.get("symbol", ""),
-            instrument_type_id=int(data.get("instrument_type_id") or 0),
-            industry_id=int(data.get("industry_id") or 0),
-            exchange_id=int(data.get("exchange_id") or 0),
         )
 
 
 @dataclass(frozen=True)
-class Position:
-    """Una posición individual abierta (PositionID) de un usuario.
+class Asset:
+    """Lo que recordamos de cada activo de la cartera.
 
-    En eToro una "posición" es cada compra concreta: si alguien compra el
-    mismo activo tres veces tiene 3 posiciones con 3 PositionID distintos.
-    Esa es la clave que nos permite detectar compras y ventas sin ambigüedad.
+    Por qué estas tres cosas y no otras:
+
+    * `units` (suma de unidades de todas las posiciones abiertas) es el único
+      dato que **solo cambia cuando el usuario opera**. El precio del activo no
+      lo toca, ni el del resto de la cartera. Comparando unidades se distingue
+      "ha comprado" de "el mercado se ha movido", que es justo lo que hay que
+      distinguir para no dar falsos avisos.
+    * `direction` ("Buy"/"Sell") dice si el activo está en largo o en corto.
+    * `invested_pct` (campo `Invested` de eToro: porcentaje de la cartera que
+      supone el coste del activo) es solo **contexto para el mensaje**. No se
+      usa para detectar nada, porque se mueve con el mercado.
+
+    A propósito NO guardamos: identificadores de posición, unidades de cada
+    posición, fechas de apertura, precios de entrada ni ganancias.
     """
 
-    position_id: int
     instrument_id: int
-    is_buy: bool
-    amount: float
-    open_rate: float
-    open_datetime: str = ""
-    leverage: int = 1
-    mirror_id: int = 0
+    direction: str
+    units: float
+    invested_pct: float = 0.0
 
     @property
-    def direction(self) -> str:
-        return "long" if self.is_buy else "short"
+    def key(self) -> str:
+        """Clave estable en el estado: un activo puede estar en largo y en corto."""
+        return f"{self.instrument_id}:{self.direction}"
+
+    @property
+    def is_short(self) -> bool:
+        return self.direction.strip().lower() == "sell"
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "position_id": self.position_id,
             "instrument_id": self.instrument_id,
-            "is_buy": self.is_buy,
-            "amount": round(self.amount, 8),
-            "open_rate": round(self.open_rate, 8),
-            "open_datetime": self.open_datetime,
-            "leverage": self.leverage,
-            "mirror_id": self.mirror_id,
+            "direction": self.direction,
+            "units": round(self.units, UNITS_DECIMALS),
+            "invested_pct": round(self.invested_pct, 4),
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Position":
+    def from_dict(cls, data: dict[str, Any]) -> "Asset":
         return cls(
-            position_id=int(data["position_id"]),
             instrument_id=int(data["instrument_id"]),
-            is_buy=bool(data["is_buy"]),
-            amount=float(data["amount"]),
-            open_rate=float(data["open_rate"]),
-            open_datetime=data.get("open_datetime", ""),
-            leverage=int(data.get("leverage") or 1),
-            mirror_id=int(data.get("mirror_id") or 0),
+            direction=str(data.get("direction") or "Buy"),
+            units=float(data.get("units") or 0.0),
+            invested_pct=float(data.get("invested_pct") or 0.0),
         )
 
 
@@ -159,33 +163,50 @@ class Snapshot:
     """Foto de la cartera de un usuario en un momento dado."""
 
     user: EtoroUser
-    positions: dict[int, Position] = field(default_factory=dict)
-    # instrument_id -> % de la cartera (suma 100 en toda la cartera)
-    weights: dict[int, float] = field(default_factory=dict)
-    # instrument_id -> "Buy" / "Sell" según la vista agregada de eToro
-    directions: dict[int, str] = field(default_factory=dict)
-
-    def positions_of(self, instrument_id: int) -> list[Position]:
-        return [p for p in self.positions.values() if p.instrument_id == instrument_id]
+    assets: dict[str, Asset] = field(default_factory=dict)
 
     @property
     def instrument_ids(self) -> set[int]:
-        return {p.instrument_id for p in self.positions.values()}
+        return {a.instrument_id for a in self.assets.values()}
+
+    def weight_of(self, instrument_id: int) -> Optional[float]:
+        for asset in self.assets.values():
+            if asset.instrument_id == instrument_id:
+                return asset.invested_pct
+        return None
 
 
 @dataclass(frozen=True)
 class Change:
-    """Un cambio detectado entre dos fotos de la cartera."""
+    """Una operación detectada en un activo."""
 
     kind: str  # opened | increased | reduced | closed
     instrument_id: int
-    position_id: int
-    before: Optional[Position] = None
-    after: Optional[Position] = None
-    # El activo no existía en la cartera antes de este cambio (apertura).
+    direction: str
+    before: Optional[Asset] = None
+    after: Optional[Asset] = None
+    # El activo no existía en la cartera antes de este cambio.
     instrument_was_new: bool = False
-    # El activo se queda sin ninguna posición después de este cambio (cierre total).
+    # El activo se queda sin ninguna posición después de este cambio.
     instrument_now_empty: bool = False
+
+    @property
+    def asset(self) -> Asset:
+        asset = self.after or self.before
+        assert asset is not None
+        return asset
+
+    @property
+    def is_short(self) -> bool:
+        return self.asset.is_short
+
+    @property
+    def weight_before(self) -> Optional[float]:
+        return self.before.invested_pct if self.before else None
+
+    @property
+    def weight_after(self) -> Optional[float]:
+        return self.after.invested_pct if self.after else None
 
 
 KIND_ORDER = {"opened": 0, "increased": 1, "reduced": 2, "closed": 3}

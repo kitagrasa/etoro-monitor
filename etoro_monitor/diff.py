@@ -1,94 +1,88 @@
-"""Comparación de dos fotos de cartera -> lista de cambios.
+"""Comparación de dos fotos de cartera -> lista de operaciones.
 
-La clave de todo el sistema: cada compra en eToro crea un `PositionID`
-nuevo e inmutable. Comparando los conjuntos de PositionID entre dos
-ejecuciones detectamos, sin ruido de precios:
+Solo se compara **unidades por activo**. Como las unidades únicamente cambian
+cuando el usuario opera (el precio no las toca), no hay falsos positivos por
+movimientos del mercado:
 
-  * PositionID nuevo         -> se ha COMPRADO (abrir o ampliar)
-  * PositionID desaparecido  -> se ha VENDIDO (cerrar)
-  * mismo ID, menos unidades -> ha REDUCIDO (venta parcial)
-  * mismo ID, más unidades   -> ha AMPLIADO (compra parcial)
+  * activo que aparece              -> COMPRA (abre, o entra en corto)
+  * activo que desaparece           -> VENTA (cierra todo)
+  * más unidades                    -> AMPLÍA
+  * menos unidades                  -> REDUCE
 
-El ruido típico (que el precio suba o baje) no altera ni los PositionID ni
-las unidades, así que no genera falsos positivos.
+La clave incluye la dirección, así que un mismo activo puede detectarse por
+separado en largo y en corto.
 """
 
 from __future__ import annotations
 
-from typing import Iterable
-
-from .models import Change, Snapshot
-
-# Tolerancia para comparar unidades (evita falsos positivos por redondeo).
-_AMOUNT_RTOL = 1e-6
-_AMOUNT_ATOL = 1e-9
+from .models import UNITS_DECIMALS, Change, Snapshot
 
 
 def diff_snapshots(before: Snapshot, after: Snapshot) -> list[Change]:
-    """Devuelve los cambios de cartera entre dos instantáneas."""
-    old = before.positions
-    new = after.positions
+    """Devuelve las operaciones detectadas entre dos instantáneas."""
+    old = before.assets
+    new = after.assets
 
-    old_instruments = {p.instrument_id for p in old.values()}
-    new_instruments = {p.instrument_id for p in new.values()}
+    old_instruments = {a.instrument_id for a in old.values()}
+    new_instruments = {a.instrument_id for a in new.values()}
 
     changes: list[Change] = []
 
-    for position_id in sorted(set(new) - set(old)):
-        position = new[position_id]
+    for key in sorted(set(new) - set(old)):
+        asset = new[key]
         changes.append(
             Change(
                 kind="opened",
-                instrument_id=position.instrument_id,
-                position_id=position_id,
-                after=position,
-                instrument_was_new=position.instrument_id not in old_instruments,
+                instrument_id=asset.instrument_id,
+                direction=asset.direction,
+                after=asset,
+                instrument_was_new=asset.instrument_id not in old_instruments,
             )
         )
 
-    for position_id in sorted(set(old) & set(new)):
-        previous = old[position_id]
-        current = new[position_id]
-        if _amount_changed(previous.amount, current.amount):
+    for key in sorted(set(old) & set(new)):
+        previous, current = old[key], new[key]
+        if _units_changed(previous.units, current.units):
             changes.append(
                 Change(
-                    kind="increased" if current.amount > previous.amount else "reduced",
+                    kind="increased" if current.units > previous.units else "reduced",
                     instrument_id=current.instrument_id,
-                    position_id=position_id,
+                    direction=current.direction,
                     before=previous,
                     after=current,
                 )
             )
 
-    for position_id in sorted(set(old) - set(new)):
-        position = old[position_id]
+    for key in sorted(set(old) - set(new)):
+        asset = old[key]
         changes.append(
             Change(
                 kind="closed",
-                instrument_id=position.instrument_id,
-                position_id=position_id,
-                before=position,
-                instrument_now_empty=position.instrument_id not in new_instruments,
+                instrument_id=asset.instrument_id,
+                direction=asset.direction,
+                before=asset,
+                instrument_now_empty=asset.instrument_id not in new_instruments,
             )
         )
 
-    # Los activos que notificamos con más detalle primero: aperturas, luego
-    # ampliaciones, reducciones y cierres.
     order = {"opened": 0, "increased": 1, "reduced": 2, "closed": 3}
-    changes.sort(key=lambda c: (order.get(c.kind, 9), c.instrument_id, c.position_id))
+    changes.sort(key=lambda c: (order.get(c.kind, 9), c.instrument_id, c.direction))
     return changes
 
 
-def _amount_changed(old_amount: float, new_amount: float) -> bool:
-    if old_amount == new_amount:
-        return False
-    scale = max(abs(old_amount), abs(new_amount), 1e-9)
-    return abs(new_amount - old_amount) > max(_AMOUNT_ATOL, _AMOUNT_RTOL * scale)
+def _units_changed(old_units: float, new_units: float) -> bool:
+    """Compara unidades sin dejarse engañar por el ruido de coma flotante.
+
+    Las unidades se redondean al mismo número de decimales con que se guardan
+    en el estado, de modo que el resultado no depende de en qué orden se hayan
+    sumado las posiciones (que puede variar entre ejecuciones).
+    """
+    return round(old_units, UNITS_DECIMALS) != round(new_units, UNITS_DECIMALS)
 
 
-def summarize_by_instrument(changes: Iterable[Change]) -> dict[int, list[Change]]:
-    """Agrupa los cambios por activo para redactar el mensaje."""
-    grouped: dict[int, list[Change]] = {}
+def summarize_by_instrument(changes: list[Change]) -> dict[str, list[Change]]:
+    """Agrupa las operaciones por clave de activo, para redactar el mensaje."""
+    grouped: dict[str, list[Change]] = {}
     for change in changes:
-        grouped.setdefault(change.instrument_id, []).append(change)
+        grouped.setdefault(change.asset.key, []).append(change)
     return grouped

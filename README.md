@@ -1,164 +1,192 @@
 # etoro-monitor
 
 Avisos automáticos por **Telegram** cuando los usuarios de eToro que tú elijas
-mueven su cartera: **compran, venden, amplían o reducen** posiciones.
+**compran, venden, amplían o reducen** posiciones.
 
 * **Sin KYC, sin login, sin API key, sin cuenta en eToro.** Solo se leen los
   endpoints *públicos* que carga la propia web
-  (`https://www.etoro.com/people/<usuario>/portfolio`). Nada de esto toca
-  cuentas privadas: únicamente carteras que sus dueños han hecho públicas.
-* Funciona solo, en la nube, con **GitHub Actions** (gratis), cada **30
-  minutos**. No necesitas tener un ordenador encendido.
+  (`https://www.etoro.com/people/<usuario>/portfolio`).
+* Solo avisa de **operaciones reales**. Que el mercado suba o baje **no**
+  genera ningún aviso.
+* Funciona solo, en la nube, con **GitHub Actions**, disparado por
+  **cron-job.org**.
 * A quién sigues se decide en **`watchlist.md`**: un usuario por línea.
-* Cuando un usuario tiene la cartera privada, el programa lo detecta y lo
-  avisa en el log en vez de inventarse datos.
+* El **código puede ser público** (minutos de Actions ilimitados y gratis)
+  mientras el estado, que contiene a quién sigues y sus datos, vive en un
+  **repositorio privado aparte**. Ver [sección 2.6](#26-el-estado-en-un-repositorio-privado-recomendado).
 
 ---
 
 ## 1. Cómo funciona (en 30 segundos)
 
-1. Cada 30 minutos, GitHub Actions ejecuta un script de Python.
-2. El script traduce cada nombre de usuario a su `CID` interno de eToro
-   (`/api/logininfo/v1.1/users/<usuario>`).
-3. Descarga la cartera pública: activos, pesos y **todas las posiciones
-   abiertas**, cada una con su `PositionID`.
-4. Lo compara con la foto guardada en `state/state.json`.
-5. Si hay diferencias, manda un mensaje a Telegram y actualiza el estado.
+1. cron-job.org llama a la API de GitHub y despierta el workflow.
+2. El script traduce cada nombre de usuario a su `CID` interno de eToro.
+3. Descarga la cartera pública de cada persona.
+4. Compara con la foto que guardó la vez anterior.
+5. Si hay diferencias, manda un mensaje a Telegram y actualiza la foto.
 
-**¿Por qué es fiable?** Porque en eToro cada compra crea un `PositionID` nuevo
-e inmutable:
+### Por qué es fiable (y por qué no da falsos avisos)
 
-| Lo que pasa en tu foto guardada | Lo que ha hecho el usuario |
+Cada activo se resume en **un solo número que solo cambia cuando el usuario
+opera**: el **total de unidades**.
+
+| Lo que ve el monitor | Qué ha pasado |
 |---|---|
-| Aparece un `PositionID` nuevo | Ha **comprado** (abre o amplía) |
-| Desaparece un `PositionID` | Ha **vendido** (cierra) |
-| Mismo `PositionID` con menos unidades | Ha **reducido** |
-| Mismo `PositionID` con más unidades | Ha **ampliado** |
+| Aparece un activo que no tenía | **COMPRA** (o **ABRE CORTO**) |
+| Desaparece un activo | **VENTA** (o **CIERRA CORTO**) |
+| Tiene más unidades | **AMPLÍA** |
+| Tiene menos unidades | **REDUCE** |
 
-El precio subiendo o bajando **no** cambia ni los identificadores ni las
-unidades, así que no genera falsos avisos ("el mercado ha movido la cartera"
-no es una noticia). Eso sí: cuanto más frecuente sea el cron, menos probable
-es perderse algo.
+Las unidades **no cambian** porque el precio suba o baje, ni porque se mueva el
+resto de la cartera. Por eso el mercado no puede generar un aviso falso.
+
+El **peso** de cada activo (`Invested`) sí se mueve con el mercado, así que se
+usa **solo como contexto** en el mensaje, nunca para decidir si hubo operación.
+
+Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
+
+```
+🔔 Usuario Ejemplo ha movido su cartera
+02/10/2026 16:03 UTC · 2 operaciones en 2 activos
+
+🟢 COMPRA · Alphabet (GOOG)  (nueva en cartera)
+   peso en cartera: 5,40%
+🔴 CIERRA CORTO · EUR/USD
+   peso antes: 0,71%
+```
 
 ---
 
-## 2. Puesta en marcha (10 minutos)
+## 2. Puesta en marcha
 
 ### 2.1 Crea tu bot de Telegram
 
-1. Abre Telegram y habla con [@BotFather](https://t.me/BotFather).
-2. `/newbot` → te pide un nombre y un usuario → te devuelve un **token** del
-   estilo `123456789:AAH...`. Eso es `TELEGRAM_BOT_TOKEN`.
-3. **Escríbele algo al bot** (o añádelo a un grupo). Un bot no puede
-   iniciar la conversación: si no le has hablado nunca, Telegram no le deja
-   enviarte nada.
+1. Habla con [@BotFather](https://t.me/BotFather) → `/newbot` → te da un
+   **token** (`123456789:AAH...`).
+2. **Escríbele algo al bot.** Un bot no puede iniciar la conversación: si no
+   le has hablado nunca, Telegram no le deja enviarte nada.
 
 ### 2.2 Averigua tu `chat_id`
 
-* **Chat privado:** habla con [@userinfobot](https://t.me/userinfobot) y te
-  dice tu `Id` (un número, puede ser negativo en grupos).
-* **Grupo:** añade el bot al grupo, escribe cualquier mensaje y abre
-  `https://api.telegram.org/bot<TU_TOKEN>/getUpdates` en el navegador. Busca
-  `"chat":{"id":-1001234567890`.
+* **Privado:** habla con [@userinfobot](https://t.me/userinfobot).
+* **Grupo:** añade el bot, escribe algo y abre
+  `https://api.telegram.org/bot<TU_TOKEN>/getUpdates`. Busca `"chat":{"id":-100...`.
 
 ### 2.3 Apunta a quién quieres seguir
 
-Abre `watchlist.md` y escribe **un usuario por línea** (ver
-[sección 3](#3-elegir-a-quién-vigilar-watchlistmd)). Ya viene con dos nombres
-de ejemplo que debes sustituir por los tuyos.
-
-### 2.4 Sube el proyecto a GitHub
-
-```bash
-git init
-git add .
-git commit -m "Monitor de carteras públicas de eToro"
-git branch -M main
-git remote add origin git@github.com:<tu-usuario>/etoro-monitor.git
-git push -u origin main
-```
-
-### 2.5 Configura los secretos
-
-En GitHub: **Settings → Secrets and variables → Actions → New repository
-secret**:
-
-| Nombre | Valor |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | el token de BotFather |
-| `TELEGRAM_CHAT_ID` | tu chat id |
-
-Opcionalmente, `ETORO_USERS` si prefieres no tener tu lista de seguimiento
-dentro del repositorio (ver [sección 6](#6-privacidad-qué-datos-hay-y-dónde)).
-
-### 2.6 Comprueba que todo funciona
-
-1. Pestaña **Actions** → **Probar Telegram** → *Run workflow*.
-   Debe llegarte un mensaje al móvil. Si no llega, revisa el token y el chat id.
-2. **Actions** → **Diagnóstico eToro** → *Run workflow*. Te dice si los
-   endpoints de eToro responden desde GitHub (puede tardar unos segundos).
-3. **Actions** → **Monitor eToro -> Telegram** → *Run workflow*.
-   La primera vez recibirás un mensaje de "línea base" por cada persona de
-   `watchlist.md`, con sus mayores pesos. Así confirmas que llega todo bien.
-
-A partir de ahí no tienes que hacer nada más: el cron `*/30 * * * *` se
-encarga de todo.
-
----
-
-## 3. Elegir a quién vigilar: `watchlist.md`
-
-Abre **`watchlist.md`** y escribe **un usuario por línea**. El usuario es lo
-que va en la URL después de `/people/`:
-
-```
-https://www.etoro.com/people/usuario_ejemplo/portfolio
-                         ^^^^^^^^^^^^^^^
-```
-
-Así queda el fichero:
+En **`watchlist.md`**, un usuario por línea (el trozo de la URL tras `/people/`):
 
 ```markdown
 # Usuarios a los que sigo
 
 usuario_ejemplo
 otro_usuario
-# desactivado_de_momento
 ```
 
-Guarda el fichero y ya está: la siguiente ejecución lo detecta sola. No hay
-que tocar YAML, ni comas, ni nada más.
+Las líneas con `#` se ignoran, así que sirven para desactivar a alguien sin
+borrarlo. Si el repositorio es **público**, deja este fichero vacío y pon la
+lista en el secreto `ETORO_USERS` (ver sección 6).
 
-**Detalles útiles:**
+### 2.4 Sube el proyecto a GitHub
 
-* Las líneas que empiezan por `#` se ignoran, así que sirven para poner
-  notas o para **desactivar temporalmente** a alguien sin borrarlo.
-* Las mayúsculas dan igual (`UsuarioEjemplo` = `usuarioejemplo`) y si cambias
-  solo eso tampoco pierdes la memoria del bot.
-* Se admiten también, por comodidad, viñetas (`- usuario_ejemplo`) y la URL
-  completa (`https://www.etoro.com/people/usuario_ejemplo`).
+Vacío, **sin** README ni licencia, y luego sube el contenido del ZIP.
 
-Puedes ver a quién estás siguiendo con:
+> Ojo: si arrastras la carpeta contenedora, los workflows acaban en
+> `proyecto/.github/...` y **no se ejecutarán nunca**. En la raíz del repo debe
+> haber `.github/`, `etoro_monitor/`, `tests/`, `state/`.
+> Extrae el ZIP y usa **Ctrl+A** dentro de la carpeta extraída.
 
-```bash
-python -m etoro_monitor users
-```
+### 2.5 Configura los secretos
 
-No hace falta buscar el CID a mano: se resuelve en cada ejecución. Para
-comprobar que un usuario existe y su cartera es pública:
+**Settings → Secrets and variables → Actions → New repository secret**:
 
-```bash
-python -m etoro_monitor resolve usuario_ejemplo
-# usuario_ejemplo -> username=UsuarioEjemplo CID=1234567 GCID=7654321 nombre=(oculto)
-```
+| Secreto | Valor | ¿Obligatorio? |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | el token de BotFather | Sí |
+| `TELEGRAM_CHAT_ID` | tu chat id | Sí |
+| `ETORO_USERS` | `usuario_uno, usuario_dos` | Solo si el repo es público y no usas `watchlist.md` |
+| `STATE_REPO` | `tu-usuario/etoro-monitor-estado` | Recomendado (ver 2.6) |
+| `STATE_REPO_TOKEN` | token con permiso de escritura sobre ese repo | Recomendado (ver 2.6) |
 
-El `CID` es el identificador interno de la cartera real: lo traduce el
-programa solo, no lo busques a mano. El nombre completo solo aparece si esa
-persona ha decidido mostrarlo en su perfil público.
+Si falta Telegram, el workflow falla con un mensaje claro en vez de terminar en
+verde sin enviar nada.
+
+### 2.6 El estado en un repositorio privado (recomendado)
+
+El monitor necesita recordar la foto anterior de cada cartera. Esa foto incluye
+a quién sigues, qué activos tiene cada uno y en qué cantidades. Si el
+repositorio del código es público, **esos datos también serían públicos y
+quedarían archivados para siempre en el historial de git**.
+
+La solución: guardar el estado en un repositorio **privado** aparte. Así el
+código puede ser público (minutos de Actions ilimitados y gratis) sin exponer
+datos de nadie.
+
+**Paso 1 — crea el repositorio de estado.**
+
+Uno nuevo, **privado** y **vacío** (sin README ni licencia). Por ejemplo
+`etoro-monitor-estado`. No importa si no tiene rama todavía: el workflow la
+crea sola.
+
+**Paso 2 — crea un token con permiso sobre él.**
+
+Settings → Developer settings → Personal access tokens → **Fine-grained**:
+
+* *Repository access*: solo `etoro-monitor-estado`.
+* *Permissions* → **Contents: Read and write**.
+
+**Paso 3 — añade los dos secretos** en el repositorio del código:
+
+| Secreto | Valor |
+|---|---|
+| `STATE_REPO` | `tu-usuario/etoro-monitor-estado` |
+| `STATE_REPO_TOKEN` | el token del paso 2 |
+
+A partir de ahí, el workflow clona ese repositorio al empezar, lee el estado,
+lo actualiza y lo vuelve a subir. En los ficheros `state/` de este repositorio
+solo quedan las plantillas vacías.
+
+**Si no defines esos secretos**, el estado se guarda aquí, como antes. Eso está
+bien si este repositorio ya es **privado**.
+
+> **Rama del estado:** por defecto `main`. Si tu repositorio de estado usa
+> `master`, cambia `STATE_BRANCH` al principio de `.github/workflows/monitor.yml`.
+> (El workflow hace el checkout de esa rama a propósito, así que funciona aunque
+> el repositorio esté vacío o su rama por defecto sea otra.)
+
+### 2.7 Configura cron-job.org
+
+Un solo trabajo:
+
+| Campo | Valor |
+|---|---|
+| URL | `https://api.github.com/repos/<usuario>/<repo>/actions/workflows/monitor.yml/dispatches` |
+| Método | `POST` |
+| Cabeceras | `Authorization: Bearer <TOKEN>`<br>`Accept: application/vnd.github+json`<br>`Content-Type: application/json`<br>`X-GitHub-Api-Version: 2022-11-28` |
+| Cuerpo | `{"ref":"main"}` |
+
+Respuesta correcta: **204 No Content**. Marca los 2xx como éxito.
+
+El **token** es un *fine-grained token* (Settings → Developer settings) con
+acceso **solo a ese repositorio** y permiso **Actions: read and write**. Es un
+secreto que queda guardado en cron-job.org.
+
+**La ventaja de cron-job.org:** entiende de zonas horarias y cambios de hora, así
+que programas en tu hora local y ya está. Las ejecuciones entran como
+`workflow_dispatch`, así que el horario de `watchlist.yml` no las bloquea.
+
+### 2.8 Comprueba que funciona
+
+1. **Actions → Probar Telegram** → debe llegarte un mensaje al móvil.
+2. **Actions → Diagnóstico eToro** → te dice si eToro responde desde GitHub.
+3. **Actions → Monitor eToro → Run workflow** con **`dry_run` marcado** → recorre
+   las carteras y muestra los mensajes en el log **sin enviar nada**.
+4. El mismo, sin `dry_run` → recibes la "línea base".
+5. Otra vez → debe decir `sin operaciones` y `STATE_CHANGED=false`.
 
 ---
 
-## 4. Uso en tu ordenador (opcional)
+## 3. Uso en tu ordenador (opcional)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -166,118 +194,130 @@ pip install -r requirements.txt
 
 export TELEGRAM_BOT_TOKEN="123456:AA..."
 export TELEGRAM_CHAT_ID="123456789"
+export ETORO_USERS="usuario_ejemplo"
 
 python -m etoro_monitor check --dry-run         # mira sin enviar nada
-python -m etoro_monitor check                # revisa y manda a Telegram
+python -m etoro_monitor check                   # revisa y manda a Telegram
 python -m etoro_monitor users                   # a quién está siguiendo
-python -m etoro_monitor show usuario_ejemplo    # volcado de la cartera actual
+python -m etoro_monitor show usuario_ejemplo    # cartera actual por pesos
 python -m etoro_monitor resolve usuario_ejemplo # nombre -> CID
 python -m etoro_monitor ping                    # ¿responden los endpoints?
-python -m etoro_monitor ping --username otro_usuario
 python -m etoro_monitor notify-test             # mensaje de prueba
-python -m pytest tests -q                       # tests
-```
-
-Para que se ejecute solo cada 30 minutos en tu máquina, un cron sencillo:
-
-```cron
-*/30 * * * * cd /ruta/etoro-monitor && /ruta/.venv/bin/python -m etoro_monitor check >> monitor.log 2>&1
+python -m pytest tests -q                       # 123 tests, sin red
 ```
 
 ---
 
-## 5. Avisos, límites y letra pequeña
+## 4. Cómo se comporta ante errores
 
-* **No hay KYC ni login en ningún sitio.** Todo son peticiones GET anónimas a
-  la web pública de eToro. No se usa tu cuenta para nada.
-* **Términos de uso.** Esto lee datos públicos de eToro con la misma API que
-  usa su web. Es scraping: eToro podría cambiar los endpoints, bloquear el
-  acceso o considerarlo contrario a sus términos. Úsalo de forma moderada y
-  bajo tu responsabilidad. El proyecto está pensado para uso personal.
-* **Bloqueos.** eToro usa DataDome/Cloudflare. Si detectamos un captcha, el
-  programa **no** interpreta "no hay datos" como "lo ha vendido todo" (si lo
-  hiciera, te inundaría de avisos falsos): avisa del problema y no toca el
-  estado. Sube `http.delay_seconds` o espacia el cron.
-* **Frecuencia de GitHub.** Está puesto cada 30 minutos (`*/30 * * * *`), que
-  va bien tanto en repositorio público como privado: son ~1.440 ejecuciones
-  al mes, dentro de los 2.000 minutos/mes gratis de Actions. El mínimo que
-  admite GitHub es 5 minutos, y siempre con retrasos en horas punta. Si tu
-  repo es **público** (no gasta cuota) y quieres más inmediatez, cámbialo a
-  `*/10` o `*/5` en `.github/workflows/monitor.yml`.
-* **Repos inactivos.** GitHub desactiva los crons de repositorios que llevan
-  60 días sin actividad. Cualquier commit (o entrar en Actions y lanzarlo a
-  mano) lo reactiva.
-* **Carteras privadas.** Si un usuario pone su cartera en privado, verás un
-  aviso de error y sus posiciones dejarán de actualizarse.
-* **Posiciones y no unidades monetarias.** El API pública no da euros ni
-  dólares de cada operación: da unidades y precio de entrada. Los avisos
-  muestran eso y el peso del activo en la cartera (que es exactamente lo que
-  se ve en la web de eToro).
-* **Operaciones entre dos ejecuciones.** Si alguien compra y vende algo en
-  menos de 30 minutos, solo se ve el resultado final.
+| Situación | Qué hace |
+|---|---|
+| Nombre mal escrito o cuenta borrada | Aviso "no he podido leer la cartera", exit 1, y lo reintenta cada pasada |
+| Cartera puesta en privado | Igual: aviso y exit 1 |
+| eToro no responde | 4 intentos con espera creciente (~19 s) → aviso |
+| eToro pide ir más despacio (HTTP 429) | **Se rinde en el acto**, con un aviso que dice cuánto pide esperar. La siguiente pasada del cron lo reintenta |
+| eToro bloquea (captcha) | Aviso. **Nunca** interpreta "sin datos" como "lo ha vendido todo" |
+| `state/state.json` dañado | Aviso **una vez**, sale en rojo y **no toca el fichero** |
+| Telegram mal configurado | Falla con instrucciones, exit 2, sin tocar el estado |
+| Un error en una persona | **No** afecta a las demás |
+
+### Cuando eToro pide parar (el 429)
+
+eToro limita las peticiones y, cuando se pasa, responde `429` con un
+`retry-after` que **puede ser de más de 40 minutos**. Esperar sería un error: el
+workflow tiene 15 minutos de tope, así que GitHub mataría el job a mitad de
+espera.
+
+Por eso, si la espera pedida es larga (más de 60 s), el monitor **abandona esa
+pasada** con un aviso claro y deja que el siguiente cron lo reintente. Si la
+espera es corta, sí reintenta. Con el cron cada 30 minutos, un 429 se resuelve
+solo en la siguiente pasada.
+
+Si te aparece a menudo, es señal de que vas demasiado rápido: sube
+`http.delay_seconds` en `watchlist.yml` o espacia el cron.
+
+### Los avisos no se repiten
+
+Se guardan en `cooldown.json` (180 minutos por defecto). Los avisos de **una
+persona** van con su propia clave, así que un problema con alguien no silencia
+el de otra. En cambio, un bloqueo de eToro es un problema del sitio: se avisa
+**una sola vez**, no una por cada usuario de la lista. En cuanto el problema
+desaparece, la marca se olvida y el siguiente fallo avisa de inmediato.
+
+**Y lo más importante:** un error **nunca borra las posiciones guardadas**. Si
+no se puede leer una cartera, se deja la foto anterior intacta.
+
+---
+
+## 5. Elegir a quién vigilar
+
+`watchlist.md`, un usuario por línea. Detalles:
+
+* Las líneas que empiezan por `#` se ignoran.
+* Las mayúsculas dan igual (`UsuarioEjemplo` = `usuarioejemplo`), y cambiar
+  solo eso no pierde la memoria.
+* Por comodidad también admite viñetas (`- usuario_ejemplo`) y la URL completa.
+* **Si quitas a alguien de la lista, sus datos se borran del estado en la
+  siguiente pasada.** Así no se acumula información de gente a la que ya no
+  sigues, y si lo vuelves a añadir empieza limpio (con su línea base) en vez de
+  avisarte de todo lo que hizo mientras no lo mirabas.
+
+```bash
+python -m etoro_monitor users   # a quién sigues, y a quién va a dejar de seguir
+```
 
 ---
 
 ## 6. Privacidad: qué datos hay y dónde
 
-Este repositorio **no contiene ningún dato personal ni privado**: ni
-tokens, ni correos, ni rutas de tu ordenador, ni identificadores de nadie.
-Todo el código, los tests y esta documentación usan nombres ficticios
-(`usuario_ejemplo`, CID `1234567`).
+El repositorio **no contiene ningún dato personal** por defecto: ni tokens, ni
+correos, ni rutas locales. Los tests y la documentación usan nombres ficticios.
+Hay dos guardianes automáticos en `tests/test_privacidad.py` que fallan si:
 
-**Lo único que dice algo de ti es `watchlist.md`**: es la lista de cuentas
-que sigues, y por definición son tus intereses. Son perfiles **públicos** de
-eToro (si fueran privados el programa lo detecta y no lee nada), pero sigue
-siendo información tuya. Si el repositorio va a ser **público**, tienes dos
-opciones:
+* se cuela un token, un correo, un chat_id o una ruta de tu ordenador, o
+* aparece en el código, el README o los tests **alguno de los usuarios que
+  sigues** (la lista solo debe estar en `watchlist.md`).
 
-**Opción A — dejar el repositorio privado.** GitHub Actions funciona igual
-gratis y nadie ve tu lista.
+### Puedes tener el código público sin publicar datos
 
-**Opción B — sacar la lista del repositorio.** Guarda los usuarios en un
-**secreto** de GitHub llamado `ETORO_USERS` (separados por comas o saltos de
-línea) y deja `watchlist.md` vacío o con comentarios:
+Si el repositorio del código va a ser **público**, hay dos cosas que no deben
+acabar en él: **a quién sigues** y **el estado de las carteras**. Se resuelven
+así:
 
-```
-Settings → Secrets and variables → Actions → New repository secret
-   Nombre:  ETORO_USERS
-   Valor:   usuario_uno, usuario_dos
-```
+| Qué | Cómo |
+|---|---|
+| A quién sigues | Deja `watchlist.md` vacío y pon los usuarios en el secreto **`ETORO_USERS`** (separados por comas) |
+| El estado de las carteras | Guárdalo en un **repositorio privado** aparte (ver [2.6](#26-el-estado-en-un-repositorio-privado-recomendado)) |
 
-Si `ETORO_USERS` existe, manda sobre `watchlist.md`. Así el repositorio puede
-ser público sin que se vea a quién sigues. El precio a pagar es que para
-añadir a alguien tienes que editar el secreto en lugar del `.md`.
+Con eso, el repositorio público solo contiene código y documentación.
 
-### Qué NO se guarda nunca
+> **Por qué el estado también importa:** no es solo "a quién sigues". Es un
+> registro con fecha y hora de las operaciones de esas personas. eToro solo
+> muestra la cartera actual; tu repositorio acumularía un **histórico** que no
+> existe en ningún otro sitio, y quedaría **archivado para siempre en el
+> historial de git**. Es información de terceros que no decidieron publicarla ahí.
 
-* **`state/state.json`** guarda solo identificadores de posiciones y
-  unidades, y **no contiene precios ni el valor de la cartera**. Al subirlo a
-  GitHub, ten en cuenta que el workflow lo irá actualizando con commits.
-  Si prefieres que no se versione, añade `state/` al `.gitignore` y guarda el
-  estado en la caché de Actions (o acepta volver a la línea base si se
-  pierde).
-* **No se guardan credenciales de eToro** porque no existen: no hay login.
-* **`TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID`** viven solo como secretos de
-  GitHub, nunca en un fichero.
-* Los ficheros volátiles (`state/state.runtime.json`) están en `.gitignore`.
+### Qué se guarda (y qué no)
 
-### Repaso rápido antes de publicar
+`state/state.json` guarda, por persona y activo, **solo estos campos**:
 
-<!-- privacidad:ignorar:inicio -->
-```bash
-# ¿Hay rutas de mi ordenador o correos con dominio propio?
-grep -rnE "/home/[a-z]|/Users/[A-Za-z]|C:\\\\Users" . --exclude-dir=.git
-
-# ¿A quién estoy siguiendo? (esto es lo único personal)
-cat watchlist.md
-
-# ¿El estado tiene datos de carteras?
-cat state/state.json
+```json
+"1002:Buy": { "direction": "Buy", "instrument_id": 1002,
+              "units": 11.417114, "invested_pct": 11.41 }
 ```
 
-Los tests incluyen un guardián automático (`tests/test_privacidad.py`), así
-que basta con ejecutar `python -m pytest tests -q` antes de publicar.
-<!-- privacidad:ignorar:fin -->
+**No se guarda**: identificadores de posición, unidades por posición, fechas de
+apertura, precios de entrada, ganancias ni valor de la cartera. Antes el fichero
+ocupaba **61,7 KB**; ahora **~10 KB**.
+
+`state/cooldown.json` guarda cuándo se avisó de cada problema (con nombres de
+usuario en las claves), así que también contiene información personal. El
+guardián de privacidad comprueba que empiece vacío.
+
+**Con la sección 2.6 configurada**, esos dos ficheros viven en el repositorio
+privado y **nunca** se guardan en el repositorio del código: este puede ser
+público sin más. Si prefieres no configurarla, entonces el repositorio del
+código **debe ser privado**.
 
 ---
 
@@ -286,25 +326,31 @@ que basta con ejecutar `python -m pytest tests -q` antes de publicar.
 ```
 etoro-monitor/
 ├── .github/workflows/
-│   ├── monitor.yml              # el cron: revisa y avisa
-│   ├── test-telegram.yml        # manda un mensaje de prueba
-│   ├── test-etoro.yml           # diagnóstico de los endpoints
+│   ├── monitor.yml              # el que dispara cron-job.org
+│   ├── test-telegram.yml        # mensaje de prueba
+│   ├── test-etoro.yml           # diagnóstico de endpoints
 │   └── test-instrumentos.yml    # catálogo de activos
 ├── etoro_monitor/
-│   ├── client.py                # endpoints públicos de eToro, reintentos, anti-bloqueo
-│   ├── models.py                # Usuario, Instrumento, Posición, Cambio
-│   ├── diff.py                  # comparación de fotos de cartera
-│   ├── monitor.py               # orquestación: leer -> comparar -> avisar
-│   ├── render.py                # redacción de los mensajes
-│   ├── state.py                 # estado persistente entre ejecuciones
-│   ├── telegram.py              # envío a Telegram
-│   ├── watchlist.py             # lector del watchlist.md
+│   ├── client.py                # endpoints públicos, reintentos, anti-bloqueo
+│   ├── models.py                # Usuario, Instrumento, Activo, Operación
+│   ├── diff.py                  # compara unidades -> operaciones
+│   ├── monitor.py               # orquesta: leer -> comparar -> avisar
+│   ├── render.py                # redacta los mensajes
+│   ├── state.py                 # estado persistente
+│   ├── cooldown.py              # no repetir avisos de error
+│   ├── watchlist.py             # lee watchlist.md
 │   ├── config.py                # une watchlist.md + watchlist.yml
+│   ├── schedule.py              # ventana horaria
+│   ├── telegram.py              # envío a Telegram
 │   └── cli.py                   # línea de comandos
-├── state/state.json             # memoria del bot (se versiona)
-├── tests/                       # 56 tests, sin red y con datos ficticios
-├── watchlist.md                 # ⬅ A QUIÉN SIGUES (lo único que tocas tú)
-├── watchlist.yml                # ajustes técnicos (pausas, avisos)
+├── state/
+│   ├── state.json               # plantilla: memoria del monitor
+│   └── cooldown.json            # plantilla: marcas de avisos
+│                                # (con la opción 2.6, los de verdad viven en
+│                                #  el repositorio privado)
+├── tests/                       # 139 tests, sin red
+├── watchlist.md                 # ⬅ A QUIÉN SIGUES
+├── watchlist.yml                # ajustes técnicos
 └── requirements.txt
 ```
 
@@ -313,33 +359,71 @@ etoro-monitor/
 | Endpoint | Para qué |
 |---|---|
 | `/api/logininfo/v1.1/users/<usuario>` | nombre de usuario → `CID` |
-| `/sapi/trade-data-real/live/public/portfolios?cid=` | activos y espejos de la cartera |
-| `/sapi/trade-data-real/live/public/portfolios/exposure?cid=` | peso (%) de cada activo |
-| `/sapi/trade-data-real/live/public/positions?cid=&instrumentId=` | cada posición abierta con su `PositionID` |
-| `/sapi/instrumentsmetadata/V1.1/instruments/<id>` | nombre y ticker del activo |
+| `/sapi/trade-data-real/live/public/portfolios?cid=` | activos, lado y peso |
+| `/sapi/trade-data-real/live/public/positions?cid=&instrumentId=` | unidades de cada activo |
+| `/sapi/instrumentsmetadata/V1.1/instruments/<id>` | nombre y ticker |
 
-### El estado
-
-`state/state.json` guarda **solo datos estables** (CID, instrumentos conocidos y
-las posiciones con sus unidades). No guarda precios ni valoraciones, así que el
-workflow solo hace commit cuando **alguien ha operado de verdad**: nada de
-cientos de commits al día. Los datos volátiles van a `state/state.runtime.json`,
-que está en `.gitignore`.
-
-Repositorio recién clonado: `state/state.json` viene vacío, sin carteras de
-nadie (ver [sección 6](#6-privacidad-qué-datos-hay-y-dónde)).
+**Coste:** ~1 petición por activo (unos 30 por persona con cartera grande). Es
+el precio de distinguir una operación de un movimiento del mercado.
 
 ---
 
-## 8. Problemas frecuentes
+## 8. Avisos, límites y letra pequeña
+
+* **No hay KYC ni login en ningún sitio.**
+* **Términos de uso.** Esto lee datos públicos con la misma API que usa la web
+  de eToro. Es scraping: eToro podría cambiar los endpoints o bloquear. Úsalo de
+  forma moderada y bajo tu responsabilidad.
+* **Bloqueos.** eToro usa DataDome/Cloudflare. Si detectamos un captcha, no se
+  toca el estado y se avisa.
+* **Operaciones muy seguidas.** Dos operaciones entre dos ejecuciones se ven
+  como una sola: se compara el resultado, no el histórico.
+* **Una compra y una venta exactamente iguales** entre dos ejecuciones dejarían
+  las unidades iguales y no se detectarían. Es un caso extremo y asumible.
+* **Repos inactivos.** GitHub desactiva los workflows programados tras 60 días
+  sin actividad; al usar cron-job.org esto no te afecta.
+
+### Límites de GitHub Actions (minutos)
+
+| | Minutos de Actions | Coste |
+|---|---|---|
+| Repositorio **público** | **Ilimitados** | **0 €** |
+| Repositorio **privado**, plan Free | **2.000 min/mes** | 0 € hasta el límite |
+
+Cada ejecución del monitor tarda **menos de un minuto**, y GitHub **redondea al
+alza**, así que se factura como 1 minuto. Con dos personas vigiladas:
+
+| Frecuencia del cron | Minutos/mes | ¿Cabe en 2.000? |
+|---|---|---|
+| Cada 30 min | 1.440 | Sí, con margen |
+| Cada 60 min | 720 | Sí, holgado |
+| Cada 15 min | 2.880 | **No** |
+
+Y ojo: **los minutos se comparten entre todos tus repositorios privados**. Si
+agotas los 2.000, en el plan Free GitHub **no te cobra: te bloquea las
+ejecuciones** hasta el mes siguiente, y el monitor se queda callado sin avisar.
+
+Con el **código en un repositorio público y el estado en uno privado** (sección
+2.6) tienes lo mejor de los dos: minutos **ilimitados y gratis**, porque las
+ejecuciones corren en el repositorio público, y los datos a salvo.
+
+> Los repositorios privados no consumen minutos por existir: solo por ejecutar
+> Actions. El repositorio de estado no ejecuta nada, así que es gratis.
+
+---
+
+## 9. Problemas frecuentes
 
 | Síntoma | Causa probable |
 |---|---|
-| No llega nada a Telegram | No le has escrito nunca al bot, o el `chat_id` es incorrecto. Prueba el workflow *Probar Telegram*. |
-| Añado gente a `watchlist.md` y no se sigue | Revisa con `python -m etoro_monitor users` que se leen bien: cada usuario en su propia línea, sin texto alrededor. |
-| "eToro ha devuelto un captcha" | Has ido demasiado rápido. Espera unas horas o sube `delay_seconds`. |
-| "la cartera es privada" | Ese usuario ha cerrado su cartera pública: no hay nada que leer. |
-| "No hay ningún usuario que seguir" | `watchlist.md` no tiene ninguna línea con un usuario (¿está todo comentado con `#`?) y no has definido `ETORO_USERS`. |
-| "no encuentra watchlist.yml" | Falta `watchlist.yml` en la raíz del repo. |
-| Avisos repetidos | Se perdió el commit de `state/state.json` (el workflow no tiene permiso de escritura: revisa `permissions: contents: write`). |
-| El cron no se ejecuta | GitHub desactiva crons tras 60 días sin actividad, o el repo es privado y se agotó la cuota. |
+| No llega nada a Telegram | No le has escrito nunca al bot, o el `chat_id` está mal |
+| El workflow no arranca con cron-job.org | Token sin permiso *Actions: read/write*, o URL/rama incorrecta |
+| "Telegram no está configurado" | Faltan los secretos |
+| "No hay ningún usuario que seguir" | `watchlist.md` vacío y sin secreto `ETORO_USERS` |
+| "eToro ha devuelto un captcha" | Has ido muy rápido. Espera o sube `delay_seconds` |
+| "eToro ha limitado las peticiones (429)" | Vas demasiado rápido: espacia el cron o sube `delay_seconds` |
+| "la cartera es privada" | Ese usuario ha cerrado su cartera pública |
+| "No puedo leer mi fichero de estado" | `state.json` dañado: repara el JSON o lanza con `reset_state` |
+| El estado no se recupera entre pasadas | Revisa `STATE_BRANCH`: debe coincidir con la rama real del repositorio de estado |
+| Avisos repetidos de operaciones | El estado no se está guardando: revisa los secretos `STATE_REPO`/`STATE_REPO_TOKEN` o `permissions: contents: write` |
+| Sale `monitor.yml` en la raíz del repo | Estructura mal subida: los workflows no se ejecutarán |

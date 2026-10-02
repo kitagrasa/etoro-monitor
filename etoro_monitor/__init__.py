@@ -12,19 +12,24 @@ from .client import (
     PrivatePortfolio,
     UserNotFound,
 )
-from .models import Change, EtoroUser, Instrument, Position, Snapshot
+from .cooldown import CooldownStore
+from .models import Asset, Change, EtoroUser, Instrument, Snapshot
+from .state import State, StateCorruptError
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
+    "Asset",
     "Blocked",
     "Change",
+    "CooldownStore",
     "EtoroClient",
     "EtoroError",
     "EtoroUser",
     "Instrument",
-    "Position",
     "PrivatePortfolio",
     "Snapshot",
+    "State",
+    "StateCorruptError",
     "UserNotFound",
 ]
