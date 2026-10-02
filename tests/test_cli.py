@@ -176,3 +176,33 @@ def test_sin_fichero_pero_con_secreto(tmp_path, monkeypatch):
     yml, _ = escribir(tmp_path, "# (vacío a propósito)\n")
     monkeypatch.setenv("ETORO_USERS", "uno_ejemplo")
     assert load_config(yml).users == ["uno_ejemplo"]
+
+
+# ---------------------------------------------------------------------- #
+# Diagnóstico sin lista de usuarios
+# ---------------------------------------------------------------------- #
+def test_los_comandos_de_diagnostico_funcionan_sin_usuarios(tmp_path, monkeypatch):
+    """Regresión: `ping --username X` fallaba si el watchlist estaba vacío,
+    que es justo cuando más falta hace el diagnóstico."""
+    monkeypatch.delenv("ETORO_USERS", raising=False)
+    yml, _ = escribir(tmp_path, "# vacío a propósito\n")
+
+    # Con require_users=True falla (es lo que queremos para el monitor)
+    try:
+        load_config(yml)
+    except ValueError:
+        pass
+    else:  # pragma: no cover
+        raise AssertionError("debería exigir usuarios")
+
+    # Con require_users=False funciona
+    config = load_config(yml, require_users=False)
+    assert config.users == []
+
+
+def test_sin_config_funciona_para_diagnostico(tmp_path, monkeypatch):
+    """Ni siquiera hace falta que exista watchlist.yml para diagnosticar."""
+    monkeypatch.delenv("ETORO_USERS", raising=False)
+    config = load_config(tmp_path / "no-existe.yml", require_users=False)
+    assert config.users == []
+    assert config.http.delay_seconds == 0.35

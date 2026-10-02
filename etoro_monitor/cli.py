@@ -59,6 +59,15 @@ def cmd_check(args: argparse.Namespace) -> int:
     users = args.users or config.users
     log.info("Siguiendo a %s (desde %s)", config.describe_users(), config.users_origin)
 
+    # Ventana horaria (hora de Madrid). El cron de GitHub es UTC y no entiende
+    # de cambios de hora, así que el recorte fino se hace aquí.
+    if not args.force and not config.schedule.is_open():
+        log.info(
+            "Fuera de la ventana de ejecución (%s). No se hace nada.",
+            config.schedule.describe(),
+        )
+        return 0
+
     state = State.load(args.state)
     if args.reset:
         log.warning("--reset: se descarta el estado anterior (%s)", args.state)
@@ -70,15 +79,34 @@ def cmd_check(args: argparse.Namespace) -> int:
         os.environ.get("TELEGRAM_BOT_TOKEN"),
         os.environ.get("TELEGRAM_CHAT_ID"),
     )
+
+    # Sin Telegram no hay avisos posibles. Fallar aquí, con un mensaje claro,
+    # es mucho mejor que recorrer todas las carteras y terminar en verde sin
+    # haber enviado nada (el fallo silencioso más frustrante de todos).
+    if not args.dry_run and not notifier.configured:
+        faltan = [
+            nombre
+            for nombre, valor in (
+                ("TELEGRAM_BOT_TOKEN", notifier.token),
+                ("TELEGRAM_CHAT_ID", notifier.chat_id),
+            )
+            if not valor
+        ]
+        log.error(
+            "Telegram no está configurado: falta %s.\n"
+            "  · En GitHub: Settings -> Secrets and variables -> Actions -> "
+            "New repository secret.\n"
+            "  · En tu ordenador: exporta las dos variables.\n"
+            "  · Para probar sin enviar nada: añade --dry-run.",
+            " y ".join(faltan),
+        )
+        return 2
+
     if args.dry_run:
         log.info("Modo --dry-run: los mensajes se imprimen, no se envían")
 
     def send(text: str) -> None:
-        if args.dry_run or not notifier.configured:
-            if not args.dry_run and not notifier.configured:
-                log.warning(
-                    "Telegram no configurado (TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID)"
-                )
+        if args.dry_run:
             print("-" * 72)
             print(text)
             print("-" * 72)
@@ -143,7 +171,9 @@ def cmd_check(args: argparse.Namespace) -> int:
 # show
 # ---------------------------------------------------------------------- #
 def cmd_show(args: argparse.Namespace) -> int:
-    config = load_config(args.config, getattr(args, "users_file", None))
+    config = load_config(
+        args.config, getattr(args, "users_file", None), require_users=False
+    )
     client = build_client(config)
     state = State.load(args.state)
     monitor = Monitor(client, state, notify=lambda _t: None)
@@ -167,7 +197,9 @@ def cmd_show(args: argparse.Namespace) -> int:
 # resolve / ping
 # ---------------------------------------------------------------------- #
 def cmd_resolve(args: argparse.Namespace) -> int:
-    config = load_config(args.config, getattr(args, "users_file", None))
+    config = load_config(
+        args.config, getattr(args, "users_file", None), require_users=False
+    )
     client = build_client(config)
     try:
         for username in args.username:
@@ -193,7 +225,9 @@ def cmd_resolve(args: argparse.Namespace) -> int:
 
 
 def cmd_ping(args: argparse.Namespace) -> int:
-    config = load_config(args.config, getattr(args, "users_file", None))
+    config = load_config(
+        args.config, getattr(args, "users_file", None), require_users=False
+    )
     client = build_client(config)
     username = args.username or (config.users[0] if config.users else None)
     if not username:
@@ -359,6 +393,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--quiet-baseline",
         action="store_true",
         help="no envía el mensaje de bienvenida la primera vez",
+    )
+    check.add_argument(
+        "--force",
+        action="store_true",
+        help="ignora la ventana horaria y ejecuta ahora",
     )
     check.set_defaults(func=cmd_check)
 

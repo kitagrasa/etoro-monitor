@@ -20,6 +20,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from .schedule import (
+    DEFAULT_DAYS,
+    DEFAULT_END,
+    DEFAULT_START,
+    DEFAULT_TIMEZONE,
+    ScheduleWindow,
+    parse_days,
+    parse_time,
+)
 from .watchlist import describe, load_usernames
 
 try:  # PyYAML es opcional: si falta, tiramos de un JSON equivalente
@@ -55,6 +64,7 @@ class Config:
     users: list[str] = field(default_factory=list)
     http: HttpConfig = field(default_factory=HttpConfig)
     alerts: AlertsConfig = field(default_factory=AlertsConfig)
+    schedule: ScheduleWindow = field(default_factory=ScheduleWindow)
     source: Optional[Path] = None
     users_source: Optional[Path] = None
     # De dónde salen los usuarios, en texto legible para el usuario final.
@@ -67,7 +77,15 @@ class Config:
 def load_config(
     path: str | os.PathLike[str] = DEFAULT_CONFIG,
     users_file: str | os.PathLike[str] | None = None,
+    *,
+    require_users: bool = True,
 ) -> Config:
+    """Carga la configuración.
+
+    `require_users=False` sirve para los comandos de diagnóstico
+    (`ping`, `show`, `resolve`), que funcionan aunque todavía no hayas
+    apuntado a nadie: es justo el momento en el que hacen falta.
+    """
     config_path = Path(path)
     raw: dict[str, Any] = {}
 
@@ -81,6 +99,9 @@ def load_config(
             raw = json.loads(raw_text)
     elif users_file is not None and Path(users_file).exists():
         log.warning("No encuentro %s: uso solo %s", config_path, users_file)
+    elif not require_users:
+        # Comandos de diagnóstico: los valores por defecto bastan.
+        log.debug("No encuentro %s; sigo con los valores por defecto", config_path)
     else:
         raise FileNotFoundError(
             f"No encuentro {config_path}. Copia el repositorio completo o crea "
@@ -126,7 +147,7 @@ def load_config(
             users_source = config_path
             users_origin = config_path.name
 
-    if not users:
+    if not users and require_users:
         raise ValueError(
             f"No hay ningún usuario que seguir. Escribe uno por línea en "
             f"{md_path.name} (por ejemplo: usuario_ejemplo), o define la "
@@ -135,6 +156,14 @@ def load_config(
 
     http_raw = raw.get("http") or {}
     alerts_raw = raw.get("alerts") or {}
+    schedule_raw = raw.get("schedule") or {}
+    schedule = ScheduleWindow(
+        enabled=bool(schedule_raw.get("enabled", True)),
+        timezone=str(schedule_raw.get("timezone") or DEFAULT_TIMEZONE),
+        start=parse_time(schedule_raw.get("start", DEFAULT_START)),
+        end=parse_time(schedule_raw.get("end", DEFAULT_END)),
+        days=parse_days(schedule_raw.get("days", list(DEFAULT_DAYS))),
+    )
 
     return Config(
         users=users,
@@ -149,6 +178,7 @@ def load_config(
             notify_on_error=bool(alerts_raw.get("notify_on_error", True)),
             error_cooldown_minutes=int(alerts_raw.get("error_cooldown_minutes", 180)),
         ),
+        schedule=schedule,
         source=config_path,
         users_source=users_source,
         users_origin=users_origin or (

@@ -18,3 +18,20 @@ alerts:
   notify_on_baseline: true     # mensaje de bienvenida la 1ª vez que ve a un usuario
   notify_on_error: true        # avisa si eToro bloquea o falla
   error_cooldown_minutes: 180  # ...como máximo una vez cada 3 horas
+
+# ---------------------------------------------------------------------------
+# Horario en el que el monitor puede actuar (en hora de Madrid).
+#
+# El cron de GitHub va en UTC y no entiende de cambios de hora, así que el
+# workflow dispara en un rango amplio y es aquí donde se recorta a la hora
+# exacta de Madrid. Ajusta esta franja y ya está; no hay que tocar el .yml
+# del workflow.
+#
+#   days: 1 = lunes ... 7 = domingo
+# ---------------------------------------------------------------------------
+schedule:
+  enabled: true
+  timezone: Europe/Madrid
+  start: "08:30"
+  end: "23:00"
+  days: [1, 2, 3, 4, 5]        # lunes a viernes

@@ -1,22 +1,29 @@
 name: Monitor eToro -> Telegram
 
 # ---------------------------------------------------------------------------
-# Revisa cada 30 minutos las carteras públicas de los usuarios de
-# watchlist.md (una persona por línea) y manda un mensaje a Telegram cuando
-# alguno compra, vende, amplía o reduce una posición.
+# Revisa las carteras públicas de los usuarios de watchlist.md (una persona
+# por línea) y manda un mensaje a Telegram cuando alguno compra, vende,
+# amplía o reduce una posición.
+#
+# NO se ejecuta por sí solo: lo dispara cron-job.org (ver README).
 #
 # No hace login en eToro ni requiere KYC: solo lee los endpoints públicos
 # que carga la propia web de eToro.
 # ---------------------------------------------------------------------------
 on:
-  schedule:
-    # Cada 30 minutos (GitHub puede retrasarlo unos minutos en horas punta).
-    # Va bien tanto en repositorio público como privado: son unas ~1.440
-    # ejecuciones al mes, dentro de los 2.000 minutos/mes gratis de Actions.
-    #
-    # Si el repo es PÚBLICO y quieres ir más fino, puedes bajarlo a "*/10"
-    # o "*/5". Nunca menos de 5 minutos: GitHub no admite más frecuencia.
-    - cron: "*/30 * * * *"
+  # -------------------------------------------------------------------------
+  # A PROPÓSITO no hay 'schedule'.
+  #
+  # Este workflow no arranca nunca por su cuenta: solo se ejecuta cuando algo
+  # lo dispara desde fuera, que en la práctica es cron-job.org llamando a la
+  # API de GitHub. También sirve el botón "Run workflow" de la pestaña
+  # Actions, para probarlo a mano.
+  #
+  # Efecto útil: las ejecuciones disparadas así entran por 'workflow_dispatch',
+  # que es lo que mira el paso de abajo para añadir '--force'. Es decir, el
+  # horario de watchlist.yml no bloquea estas pasadas: el horario lo manda
+  # cron-job.org, que sí entiende de zonas horarias y de cambios de hora.
+  # -------------------------------------------------------------------------
   workflow_dispatch:
     inputs:
       dry_run:
@@ -75,6 +82,11 @@ jobs:
           fi
           if [ "${{ inputs.reset_state }}" = "true" ]; then
             ARGS="$ARGS --reset"
+          fi
+          # Si lo lanzas a mano desde la pestaña Actions, se ejecuta siempre:
+          # el horario solo limita las pasadas automáticas del cron.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ARGS="$ARGS --force"
           fi
           python -m etoro_monitor check $ARGS
 
