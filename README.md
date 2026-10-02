@@ -106,7 +106,8 @@ Vacío, **sin** README ni licencia, y luego sube el contenido del ZIP.
 | `TELEGRAM_CHAT_ID` | tu chat id | Sí |
 | `ETORO_USERS` | `usuario_uno, usuario_dos` | Solo si el repo es público y no usas `watchlist.md` |
 | `STATE_REPO` | `tu-usuario/etoro-monitor-estado` | Recomendado (ver 2.6) |
-| `STATE_REPO_TOKEN` | token con permiso de escritura sobre ese repo | Recomendado (ver 2.6) |
+| `STATE_DEPLOY_KEY` | la clave privada SSH del repo de estado | Recomendado (ver 2.6, opción A) |
+| `STATE_REPO_TOKEN` | token de escritura sobre ese repo | Alternativa a la anterior (opción B) |
 
 Si falta Telegram, el workflow falla con un mensaje claro en vez de terminar en
 verde sin enviar nada.
@@ -128,26 +129,66 @@ Uno nuevo, **privado** y **vacío** (sin README ni licencia). Por ejemplo
 `etoro-monitor-estado`. No importa si no tiene rama todavía: el workflow la
 crea sola.
 
-**Paso 2 — crea un token con permiso sobre él.**
+**Paso 2 — dale una credencial para poder escribirlo.**
+
+Hay dos formas. Basta con una. La **deploy key** es la recomendada.
+
+#### Opción A: deploy key (recomendado)
+
+Una clave SSH que vale **solo para ese repositorio**. No caduca y no hay
+forma de configurarla mal dándole más acceso del que le toca.
+
+1. Genera el par de claves. En GitHub **Codespaces** (terminal en el
+   navegador, gratis), o en cualquier ordenador con `ssh-keygen`:
+   ```bash
+   ssh-keygen -t ed25519 -N "" -C "etoro-monitor-estado" -f ./clave_estado
+   ```
+   Salen dos ficheros: `clave_estado` (privada) y `clave_estado.pub` (pública).
+
+2. En el repositorio de **estado** (`etoro-monitor-estado`):
+   **Settings → Deploy keys → Add deploy key**
+   * *Title*: `etoro-monitor`
+   * *Key*: el contenido de **`clave_estado.pub`**
+   * ✅ **Allow write access** ← imprescindible, si no no podrá guardar
+
+3. Añade los secretos en el repositorio del **código**:
+
+| Secreto | Valor |
+|---|---|
+| `STATE_REPO` | `tu-usuario/etoro-monitor-estado` |
+| `STATE_DEPLOY_KEY` | el contenido **completo** de `clave_estado` (privada) |
+
+> El secreto debe llevar el fichero privado entero, incluidas las líneas
+> `-----BEGIN OPENSSH PRIVATE KEY-----` y `-----END OPENSSH PRIVATE KEY-----`.
+> Y **borra `clave_estado` de donde lo hayas generado** una vez pegado.
+
+#### Opción B: token (alternativa)
 
 Settings → Developer settings → Personal access tokens → **Fine-grained**:
 
 * *Repository access*: solo `etoro-monitor-estado`.
 * *Permissions* → **Contents: Read and write**.
-
-**Paso 3 — añade los dos secretos** en el repositorio del código:
+* *Expiration*: ponle **No expiration**, o apúntate en el calendario cuándo
+  caduca. Si caduca y no te enteras, el monitor dejará de avisar (aunque el
+  aviso de fallo de la sección 4 te lo dirá).
 
 | Secreto | Valor |
 |---|---|
 | `STATE_REPO` | `tu-usuario/etoro-monitor-estado` |
-| `STATE_REPO_TOKEN` | el token del paso 2 |
+| `STATE_REPO_TOKEN` | el token |
+
+#### Comprobación
 
 A partir de ahí, el workflow clona ese repositorio al empezar, lee el estado,
-lo actualiza y lo vuelve a subir. En los ficheros `state/` de este repositorio
-solo quedan las plantillas vacías.
+lo actualiza y lo vuelve a subir. En los ficheros `state/` del repositorio del
+código solo quedan las plantillas vacías.
 
-**Si no defines esos secretos**, el estado se guarda aquí, como antes. Eso está
-bien si este repositorio ya es **privado**.
+En el log de la primera ejecución debe aparecer
+`Estado en tu-usuario/etoro-monitor-estado, con clave SSH (deploy key)`
+(o `con token`).
+
+**Si no defines ninguno de los dos**, el estado se guarda aquí. Eso está bien si
+este repositorio ya es **privado**.
 
 > **Rama del estado:** por defecto `main`. Si tu repositorio de estado usa
 > `master`, cambia `STATE_BRANCH` al principio de `.github/workflows/monitor.yml`.
@@ -203,7 +244,7 @@ python -m etoro_monitor show usuario_ejemplo    # cartera actual por pesos
 python -m etoro_monitor resolve usuario_ejemplo # nombre -> CID
 python -m etoro_monitor ping                    # ¿responden los endpoints?
 python -m etoro_monitor notify-test             # mensaje de prueba
-python -m pytest tests -q                       # 123 tests, sin red
+python -m pytest tests -q                       # 162 tests, sin red
 ```
 
 ---
@@ -220,6 +261,32 @@ python -m pytest tests -q                       # 123 tests, sin red
 | `state/state.json` dañado | Aviso **una vez**, sale en rojo y **no toca el fichero** |
 | Telegram mal configurado | Falla con instrucciones, exit 2, sin tocar el estado |
 | Un error en una persona | **No** afecta a las demás |
+| **El workflow falla entero** (credencial del estado revocada, repositorio renombrado...) | **Te llega un aviso a Telegram** con el enlace al log |
+
+### Red de seguridad: si el workflow falla, te enteras
+
+Los pasos van en este orden:
+
+```
+1. Descargar el código
+2. Preparar Python
+3. Instalar dependencias
+4. Preparar el estado      ← usa la credencial (deploy key o token)
+5. Revisar carteras        ← aquí se envían los avisos
+6. Guardar el estado
+7. Avisar del fallo        ← if: failure()
+```
+
+Si el paso 4 falla (por ejemplo, la clave ya no sirve), el paso 5 **no llega a
+ejecutarse**: no habría ningún aviso de Telegram y lo único visible sería una
+❌ en la pestaña Actions, que es fácil no ver.
+
+Por eso el paso 7 existe: si algo ha fallado, recibes un aviso en Telegram con
+el enlace al log. Cubre cualquier fallo, no solo el de la credencial.
+
+> **Ojo:** ese aviso **se repite en cada ejecución** mientras el problema siga
+> sin arreglar (cada 30 minutos). Es incómodo a propósito: más vale que te
+> enteres. En cuanto lo arregles, deja de llegar.
 
 ### Cuando eToro pide parar (el 429)
 
@@ -348,7 +415,9 @@ etoro-monitor/
 │   └── cooldown.json            # plantilla: marcas de avisos
 │                                # (con la opción 2.6, los de verdad viven en
 │                                #  el repositorio privado)
-├── tests/                       # 139 tests, sin red
+├── tests/                       # 162 tests, sin red
+│   ├── test_privacidad.py       #   vigila que no se cuelen datos personales
+│   └── test_workflow.py         #   valida el YAML y el shell de los workflows
 ├── watchlist.md                 # ⬅ A QUIÉN SIGUES
 ├── watchlist.yml                # ajustes técnicos
 └── requirements.txt

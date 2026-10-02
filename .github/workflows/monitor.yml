@@ -17,13 +17,19 @@ name: Monitor eToro -> Telegram
 # contiene a quién sigues y cuánto tiene de cada activo, así que NO conviene
 # publicarla.
 #
-#   * Con los secretos STATE_REPO y STATE_REPO_TOKEN definidos:
-#     el estado vive en un repositorio PRIVADO aparte. Este repositorio puede
-#     ser público (los minutos de Actions en repos públicos son ilimitados y
-#     gratis) sin exponer los datos de nadie.
+# El estado se guarda en un repositorio PRIVADO aparte, y para escribirlo hay
+# dos formas de identificarse. Basta con configurar UNA:
 #
-#   * Sin esos secretos: el estado se guarda aquí, como antes. Perfecto si
-#     este repositorio ya es privado.
+#   1. STATE_REPO + STATE_DEPLOY_KEY   (recomendado)
+#      Una clave SSH de solo ese repositorio. NO CADUCA, y no se puede
+#      configurar por error dándole más acceso del que tiene.
+#
+#   2. STATE_REPO + STATE_REPO_TOKEN   (alternativa)
+#      Un token fine-grained con permiso Contents: read/write sobre ese repo.
+#      Ojo: caduca, salvo que elijas "No expiration".
+#
+# Si no configuras ninguna, el estado se guarda en este mismo repositorio.
+# Eso está bien si este repositorio ya es privado.
 # ---------------------------------------------------------------------------
 on:
   # A propósito no hay 'schedule': lo dispara cron-job.org.
@@ -77,17 +83,66 @@ jobs:
         id: estado
         env:
           STATE_REPO: ${{ secrets.STATE_REPO || vars.STATE_REPO }}
+          STATE_DEPLOY_KEY: ${{ secrets.STATE_DEPLOY_KEY }}
           STATE_REPO_TOKEN: ${{ secrets.STATE_REPO_TOKEN }}
         run: |
           set -e
-          if [ -n "$STATE_REPO" ] && [ -n "$STATE_REPO_TOKEN" ]; then
-            echo "Estado en el repositorio privado: $STATE_REPO"
+
+          if [ -n "$STATE_REPO" ] && [ -n "$STATE_DEPLOY_KEY" ]; then
+            CREDENCIAL=deploy_key
+          elif [ -n "$STATE_REPO" ] && [ -n "$STATE_REPO_TOKEN" ]; then
+            CREDENCIAL=token
+          else
+            CREDENCIAL=ninguna
+          fi
+
+          if [ "$CREDENCIAL" = "deploy_key" ]; then
+            echo "Estado en $STATE_REPO, con clave SSH (deploy key)."
+
+            # Las claves públicas de GitHub se fijan aquí a propósito, en vez
+            # de usar 'ssh-keyscan'. Con ssh-keyscan la primera conexión se
+            # acepta sin comprobarla (TOFU), y ahí cabría un intermediario.
+            # Estas son las que publica GitHub en https://api.github.com/meta
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            cat > ~/.ssh/known_hosts <<'CLAVES_DE_GITHUB'
+          github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+          github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+          CLAVES_DE_GITHUB
+            chmod 600 ~/.ssh/known_hosts
+
+            # La clave privada se guarda con permisos restringidos: ssh se
+            # niega a usarla si es legible por otros.
+            printf '%s\n' "$STATE_DEPLOY_KEY" > ~/.ssh/state_key
+            chmod 600 ~/.ssh/state_key
+
+            git clone --quiet "git@github.com:${STATE_REPO}.git" .state-repo
+
+            # Se guarda en la configuración del repositorio (no en la URL, y
+            # sin el secreto dentro) para que el push de más abajo la use sola.
+            git -C .state-repo config core.sshCommand \
+              "ssh -i $HOME/.ssh/state_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+            echo "modo=repo_privado" >> "$GITHUB_OUTPUT"
+
+          elif [ "$CREDENCIAL" = "token" ]; then
+            echo "Estado en $STATE_REPO, con token."
             git clone --quiet \
               "https://x-access-token:${STATE_REPO_TOKEN}@github.com/${STATE_REPO}.git" \
               .state-repo
             # El token no se queda guardado en la configuración de git.
             git -C .state-repo remote set-url origin "https://github.com/${STATE_REPO}.git"
+            echo "modo=repo_privado" >> "$GITHUB_OUTPUT"
 
+          else
+            if [ -n "$STATE_REPO" ] || [ -n "$STATE_DEPLOY_KEY" ] || [ -n "$STATE_REPO_TOKEN" ]; then
+              echo "::warning::Para usar un repositorio de estado hacen falta STATE_REPO y (STATE_DEPLOY_KEY o STATE_REPO_TOKEN). Uso el estado de este repositorio."
+            else
+              echo "Sin repositorio de estado configurado: uso el de este repositorio."
+            fi
+            echo "modo=local" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -d .state-repo ]; then
             # El clon NO siempre deja el estado a mano: si el repositorio está
             # vacío, o si su rama por defecto no es la que usamos aquí, git
             # avisa "remote HEAD refers to nonexistent ref" y no descarga nada.
@@ -103,15 +158,8 @@ jobs:
             [ -f .state-repo/cooldown.json ] || printf '{\n  "version": 1,\n  "sent": {}\n}\n' > .state-repo/cooldown.json
 
             echo "state_path=.state-repo/state.json" >> "$GITHUB_OUTPUT"
-            echo "modo=repo_privado" >> "$GITHUB_OUTPUT"
-          elif [ -n "$STATE_REPO" ] || [ -n "$STATE_REPO_TOKEN" ]; then
-            echo "::warning::STATE_REPO y STATE_REPO_TOKEN deben estar los dos. Uso el estado de este repositorio."
-            echo "state_path=state/state.json" >> "$GITHUB_OUTPUT"
-            echo "modo=local" >> "$GITHUB_OUTPUT"
           else
-            echo "Sin STATE_REPO/STATE_REPO_TOKEN: el estado se guarda en este repositorio."
             echo "state_path=state/state.json" >> "$GITHUB_OUTPUT"
-            echo "modo=local" >> "$GITHUB_OUTPUT"
           fi
 
       # ------------------------------------------------------------------
@@ -149,8 +197,6 @@ jobs:
       - name: Guardar el estado
         if: always()
         env:
-          STATE_REPO: ${{ secrets.STATE_REPO || vars.STATE_REPO }}
-          STATE_REPO_TOKEN: ${{ secrets.STATE_REPO_TOKEN }}
           MODO: ${{ steps.estado.outputs.modo }}
         run: |
           set -e
@@ -170,12 +216,10 @@ jobs:
               exit 0
             fi
             git commit --quiet -m "$MENSAJE"
-            # El token solo se pone en la URL para este push.
-            git remote set-url origin \
-              "https://x-access-token:${STATE_REPO_TOKEN}@github.com/${STATE_REPO}.git"
+            # La credencial (clave SSH o token) va en la configuración del
+            # clon, así que aquí no hay que poner ningún secreto.
             git push --quiet origin "HEAD:$STATE_BRANCH"
-            git remote set-url origin "https://github.com/${STATE_REPO}.git"
-            echo "Estado guardado en $STATE_REPO (rama $STATE_BRANCH)"
+            echo "Estado guardado en el repositorio privado (rama $STATE_BRANCH)"
           else
             git add state/state.json state/cooldown.json
             if git diff --cached --quiet; then
@@ -191,3 +235,44 @@ jobs:
             git push --quiet origin "HEAD:$BRANCH"
             echo "Estado guardado en este repositorio."
           fi
+
+      # ------------------------------------------------------------------
+      # Red de seguridad: si algo ha fallado antes de llegar aquí, avisar.
+      #
+      # Sin esto, un problema con la credencial del estado (clave revocada,
+      # token caducado, repositorio renombrado, nombre mal escrito) dejaría
+      # el monitor MUDO: el paso de revisar carteras no llegaría a
+      # ejecutarse, no habría ningún aviso de Telegram y lo único visible
+      # sería una ❌ en la pestaña Actions, que es fácil no ver.
+      #
+      # Va el último para que el estado se intente guardar primero.
+      # ------------------------------------------------------------------
+      - name: Avisar del fallo por Telegram
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "No hay credenciales de Telegram: no puedo avisar del fallo."
+            exit 0
+          fi
+
+          TEXTO="⚠️ <b>El monitor de eToro ha fallado</b>
+
+          Esta ejecución no ha terminado bien, así que puede que no hayas recibido los avisos que tocaban.
+
+          👉 <a href=\"${RUN_URL}\">Ver el detalle del error</a>
+
+          Si el problema es de credenciales, revisa los secretos STATE_REPO y STATE_DEPLOY_KEY (o STATE_REPO_TOKEN)."
+
+          curl -sS --max-time 20 --retry 2 --retry-delay 2 \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXTO}" \
+            >/dev/null \
+            && echo "Aviso de fallo enviado a Telegram." \
+            || echo "::warning::No he podido enviar el aviso de fallo a Telegram."
