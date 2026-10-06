@@ -2,13 +2,32 @@ name: Monitor eToro -> Telegram
 
 # ---------------------------------------------------------------------------
 # Revisa las carteras públicas de los usuarios de watchlist.md (una persona por
-# línea) y manda un mensaje a Telegram cuando alguno compra, vende, amplía o
-# reduce una posición.
+# línea, en el repositorio de estado privado) y manda un mensaje a Telegram
+# cuando alguno compra, vende, amplía o reduce una posición.
 #
 # NO se ejecuta por sí solo: lo dispara cron-job.org (ver README).
 #
 # No hace login en eToro ni requiere KYC: solo lee los endpoints públicos que
 # carga la propia web de eToro.
+#
+# ---------------------------------------------------------------------------
+# DÓNDE VIVE LA LISTA DE PERSONAS A SEGUIR
+# ---------------------------------------------------------------------------
+# En un fichero `watchlist.md` DENTRO DEL REPOSITORIO DE ESTADO (privado), que
+# es lo que el paso "Preparar el estado" clona en .state-repo.
+#
+# El `watchlist.md` de ESTE repositorio es solo una plantilla y NO se lee: este
+# repositorio es público, y ahí la lista quedaría a la vista de cualquiera (y
+# archivada para siempre en el historial de git).
+#
+# Se eligió un fichero en vez de un secreto `ETORO_USERS` porque los secretos de
+# GitHub son de SOLO ESCRITURA: ni la web ni la API muestran su valor. Añadir a
+# una persona obligaba a reescribir la lista entera a mano en un cuadro en
+# blanco. Un fichero de un repositorio privado se edita con el contenido a la
+# vista: abres, añades una línea, guardas.
+#
+# Los nombres se enmascaran en el log (paso "Revisar carteras"), porque los
+# logs de este repositorio, que es público, los lee cualquiera.
 #
 # ---------------------------------------------------------------------------
 # DÓNDE VIVE EL ESTADO (esto es lo que permite tener el repo público)
@@ -206,12 +225,38 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Un usuario por línea en watchlist.md; o este secreto, que manda.
-          ETORO_WATCHLIST_MD: watchlist.md
-          ETORO_USERS: ${{ secrets.ETORO_USERS }}
+          # La lista de personas vive en el repositorio de estado (privado),
+          # que el paso anterior ha clonado aquí. El watchlist.md de ESTE
+          # repositorio no se usa a propósito: es público.
+          ETORO_WATCHLIST_MD: .state-repo/watchlist.md
           ETORO_STATE: ${{ steps.estado.outputs.state_path }}
           LOG_LEVEL: INFO
         run: |
+          set -e
+
+          # Sin la lista no hay nada que vigilar. El error que daría el monitor
+          # ("No hay ningún usuario que seguir") mandaría a mirar el fichero
+          # equivocado cuando el problema es del repositorio de estado o de su
+          # credencial, así que aquí se dice lo que pasa de verdad.
+          if [ ! -f "$ETORO_WATCHLIST_MD" ]; then
+            echo "::error::No encuentro $ETORO_WATCHLIST_MD. La lista de personas vive en el repositorio de estado (privado): revisa que STATE_REPO y su credencial (STATE_DEPLOY_KEY o STATE_REPO_TOKEN) funcionan, y que existe el fichero watchlist.md en ese repositorio. El diagnóstico 'Diagnóstico de la credencial de estado' te dice cuál de las dos cosas falla."
+            exit 1
+          fi
+
+          # Los nombres acaban en el log, y el log de este repositorio (público)
+          # lo lee cualquiera. Se enmascaran uno a uno con el MISMO parser que
+          # usa el monitor, para enmascarar exactamente las cadenas que se van a
+          # imprimir (el parser admite viñetas, URLs y mayúsculas, así que un
+          # bucle que leyera las líneas en crudo no bastaría).
+          python - "$ETORO_WATCHLIST_MD" <<'PY'
+          import sys
+
+          from etoro_monitor.watchlist import load_usernames
+
+          for usuario in load_usernames(sys.argv[1]):
+              print(f"::add-mask::{usuario}")
+          PY
+
           ARGS=""
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             ARGS="$ARGS --dry-run"
@@ -254,6 +299,14 @@ jobs:
             # unknown".
             git config user.name  "$IDENTIDAD_NAME"
             git config user.email "$IDENTIDAD_EMAIL"
+
+            # Si has añadido (o quitado) a alguien en watchlist.md desde la web
+            # de GitHub mientras esta ejecución estaba en marcha, este clon no
+            # se ha enterado y el push --force de más abajo revertiría tu cambio
+            # en silencio. Se trae la última versión del remoto solo para ese
+            # fichero antes de fotografiar el estado.
+            git fetch --quiet --depth 1 origin "$STATE_BRANCH" || true
+            git checkout --quiet FETCH_HEAD -- watchlist.md 2>/dev/null || true
 
             git add -A
             if git diff --cached --quiet; then
@@ -330,7 +383,7 @@ jobs:
 
           👉 <a href=\"${RUN_URL}\">Ver el detalle del error</a>
 
-          Si el problema es de credenciales, revisa los secretos STATE_REPO y STATE_DEPLOY_KEY (o STATE_REPO_TOKEN)."
+          Si el problema es de credenciales, revisa los secretos STATE_REPO y STATE_DEPLOY_KEY (o STATE_REPO_TOKEN): sin ellos no se puede clonar el repositorio de estado, así que el monitor tampoco encuentra la lista de personas (watchlist.md) ni el estado."
 
           curl -sS --max-time 20 --retry 2 --retry-delay 2 \
             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \

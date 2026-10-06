@@ -7,6 +7,11 @@ Hay dos ficheros, cada uno con una responsabilidad clara:
 * `watchlist.yml` -> los ajustes técnicos (pausa entre peticiones, avisos...).
   No hace falta tocarlo.
 
+Dónde vive el `watchlist.md` lo decide quien llama: en GitHub es el del
+repositorio de estado (privado), que el workflow clona en `.state-repo` y señala
+con `ETORO_WATCHLIST_MD`. El `watchlist.md` del repositorio del código está
+vacío a propósito, porque ese repositorio es público.
+
 También se acepta `watchlist.yml` con una lista `users:` (por compatibilidad),
 pero si existe `watchlist.md` manda el Markdown.
 """
@@ -113,6 +118,12 @@ def load_config(
     #   1. ETORO_USERS (variable de entorno / secreto de GitHub)
     #   2. watchlist.md (un usuario por línea)  <- lo normal
     #   3. la lista 'users:' del YAML (formato antiguo)
+    #
+    # En GitHub, el 2 es el watchlist.md del repositorio de estado (privado),
+    # que llega por ETORO_WATCHLIST_MD; el del repositorio del código está
+    # vacío a propósito. El 1 se mantiene por compatibilidad, pero el workflow
+    # ya no lo usa: como manda, dejarlo puesto ignoraría el fichero en
+    # silencio (y los secretos son de solo escritura, así que nadie lo vería).
     # ------------------------------------------------------------------ #
     md_path = Path(users_file) if users_file else _default_users_path(config_path)
     users: list[str] = []
@@ -150,7 +161,7 @@ def load_config(
     if not users and require_users:
         raise ValueError(
             f"No hay ningún usuario que seguir. Escribe uno por línea en "
-            f"{md_path.name} (por ejemplo: usuario_ejemplo), o define la "
+            f"{md_path} (por ejemplo: usuario_ejemplo), o define la "
             f"variable de entorno ETORO_USERS."
         )
 

@@ -171,3 +171,53 @@ jobs:
             echo "     'Key is already in use': habría que borrarla de allí y añadirla aquí."
             exit 1
           fi
+
+      # ------------------------------------------------------------------
+      # 5. ¿Está la lista de personas (watchlist.md) en el repositorio?
+      #
+      # El monitor lee la lista DENTRO del repositorio de estado (privado), así
+      # que si el fichero no existe, el monitor falla aunque la credencial sea
+      # perfecta. Sin esta comprobación, ese caso se confunde con un problema de
+      # credenciales y se busca en el sitio equivocado.
+      # ------------------------------------------------------------------
+      - name: ¿Está la lista de personas en el repositorio de estado?
+        env:
+          STATE_REPO: ${{ secrets.STATE_REPO }}
+          STATE_BRANCH: main
+        run: |
+          set -e
+
+          # La clave ya está en ~/.ssh/state_key_final y el known_hosts ya está
+          # escrito por el paso anterior.
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/state_key_final -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+
+          TMP="$(mktemp -d)"
+          git init --quiet "$TMP"
+          git -C "$TMP" remote add origin "git@github.com:${STATE_REPO}.git"
+
+          if ! git -C "$TMP" fetch --quiet --depth 1 origin "$STATE_BRANCH"; then
+            echo "::warning::No puedo leer la rama $STATE_BRANCH de $STATE_REPO (¿el repositorio está todavía vacío, o el estado vive en otra rama?). Si tu rama no es 'main', cámbiala en STATE_BRANCH al principio de monitor.yml y de este paso."
+            exit 0
+          fi
+
+          echo "Ficheros en $STATE_REPO (rama $STATE_BRANCH):"
+          git -C "$TMP" ls-tree --name-only FETCH_HEAD | sed 's/^/  /'
+          echo
+
+          if git -C "$TMP" ls-tree --name-only FETCH_HEAD | grep -qx "watchlist.md"; then
+            echo "✅ watchlist.md está en el repositorio: el monitor tiene lista de personas."
+            echo
+            echo "Para cambiarla: abre ese fichero en GitHub, añade o comenta una línea"
+            echo "(un usuario por línea) y guarda. No hay nada más que hacer."
+          else
+            echo "::error::Falta watchlist.md en $STATE_REPO."
+            echo
+            echo "Ese fichero es la lista de personas a seguir, y el monitor lo lee de"
+            echo "ahí (el repositorio del código es público y no puede contener la lista)."
+            echo "Créalo en la raíz del repositorio de estado con un usuario por línea,"
+            echo "y vuelve a lanzar el monitor:"
+            echo
+            echo "    usuario_uno"
+            echo "    usuario_dos"
+            exit 1
+          fi

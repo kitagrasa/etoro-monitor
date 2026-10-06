@@ -313,7 +313,7 @@ def cmd_ping(args: argparse.Namespace) -> int:
     if not username:
         print(
             "❌ Indica un usuario: python -m etoro_monitor ping --username <usuario>\n"
-            "   (o rellena watchlist.md)"
+            "   (o pon tu lista en el watchlist.md del repositorio de estado)"
         )
         return 1
     ok = True

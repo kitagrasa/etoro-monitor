@@ -10,7 +10,9 @@ Avisos automáticos por **Telegram** cuando los usuarios de eToro que tú elijas
   genera ningún aviso.
 * Funciona solo, en la nube, con **GitHub Actions**, disparado por
   **cron-job.org**.
-* A quién sigues se decide en **`watchlist.md`**: un usuario por línea.
+* A quién sigues se decide en un **`watchlist.md`** que vive en el repositorio
+  **privado** de estado: un usuario por línea, editable desde la web de GitHub
+  viendo lo que ya hay (nada de cuadros en blanco).
 * El **código puede ser público** (minutos de Actions ilimitados y gratis)
   mientras el estado, que contiene a quién sigues y sus datos, vive en un
   **repositorio privado aparte**. Ver [sección 2.6](#26-el-estado-en-un-repositorio-privado-recomendado).
@@ -74,18 +76,31 @@ Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
 
 ### 2.3 Apunta a quién quieres seguir
 
-En **`watchlist.md`**, un usuario por línea (el trozo de la URL tras `/people/`):
+La lista es un fichero **`watchlist.md`**, un usuario por línea (el trozo de la
+URL tras `/people/`):
 
 ```markdown
 # Usuarios a los que sigo
 
 usuario_ejemplo
 otro_usuario
+# usuario_desactivado
 ```
 
 Las líneas con `#` se ignoran, así que sirven para desactivar a alguien sin
-borrarlo. Si el repositorio es **público**, deja este fichero vacío y pon la
-lista en el secreto `ETORO_USERS` (ver sección 6).
+borrarlo.
+
+**Ese fichero no va en este repositorio: vive en el repositorio de estado**
+(sección [2.6](#26-el-estado-en-un-repositorio-privado-recomendado), paso 3),
+que es privado. El `watchlist.md` de aquí es solo un cartel que explica dónde
+está la lista de verdad; déjalo vacío.
+
+> **Por qué un fichero y no un secreto.** Los secretos de GitHub son de **solo
+> escritura**: ni la web ni la API muestran nunca su contenido. Guardar la lista
+> en el secreto `ETORO_USERS` significaba que, para añadir a una persona, había
+> que reescribir la lista entera a mano en un cuadro en blanco. Un fichero en un
+> repositorio privado se edita con el contenido a la vista: abres, añades una
+> línea, guardas.
 
 ### 2.4 Sube el proyecto a GitHub
 
@@ -104,13 +119,20 @@ Vacío, **sin** README ni licencia, y luego sube el contenido del ZIP.
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | el token de BotFather | Sí |
 | `TELEGRAM_CHAT_ID` | tu chat id | Sí |
-| `ETORO_USERS` | `usuario_uno, usuario_dos` | Solo si el repo es público y no usas `watchlist.md` |
 | `STATE_REPO` | `tu-usuario/etoro-monitor-estado` | Recomendado (ver 2.6) |
 | `STATE_DEPLOY_KEY` | la clave privada SSH del repo de estado | Recomendado (ver 2.6, opción A) |
 | `STATE_REPO_TOKEN` | token de escritura sobre ese repo | Alternativa a la anterior (opción B) |
 
 Si falta Telegram, el workflow falla con un mensaje claro en vez de terminar en
 verde sin enviar nada.
+
+> **Ya no hay secreto para la lista de personas.** Antes se podía poner en
+> `ETORO_USERS`, pero eso obligaba a reescribirla entera cada vez (los secretos
+> son de solo escritura y la web nunca muestra su valor). Ahora la lista es un
+> fichero del repositorio de estado (2.6, paso 3). **Si todavía tienes el
+> secreto `ETORO_USERS`, bórralo**: tiene prioridad sobre el fichero, así que
+> mientras exista el monitor ignorará la lista nueva y no te avisará de nada.
+> El workflow ya no lo usa, pero mejor no dejarlo ahí para no confundirse.
 
 ### 2.6 El estado en un repositorio privado (recomendado)
 
@@ -177,21 +199,52 @@ Settings → Developer settings → Personal access tokens → **Fine-grained**:
 | `STATE_REPO` | `tu-usuario/etoro-monitor-estado` |
 | `STATE_REPO_TOKEN` | el token |
 
+#### Paso 3 — pon la lista de personas dentro
+
+En el repositorio de estado, crea un fichero **`watchlist.md`** con un usuario
+por línea (el mismo formato de la [sección 2.3](#23-apunta-a-quién-quieres-seguir)):
+
+```markdown
+usuario_ejemplo
+otro_usuario
+```
+
+A partir de ahí, **así se mantiene la lista**: abre ese fichero en GitHub (la
+web te muestra el contenido), escribe la línea nueva —o pon un `#` delante para
+desactivar a alguien— y pulsa *Commit changes*. No hay que tocar nada más: en la
+siguiente pasada el monitor ya lo tiene en cuenta.
+
+Detalles que conviene saber:
+
+* Una persona nueva entra **con su línea base**, así que no recibirás avisos de
+  todo lo que hizo antes de que la añadieras.
+* **Comentar (`#`) a alguien es dejar de seguirle**: su foto se borra del estado
+  en la siguiente pasada y, si lo vuelves a activar más tarde, empieza de cero
+  otra vez (con línea base nueva).
+* Si editas el fichero justo mientras hay una ejecución en marcha, el workflow
+  se trae la última versión del remoto antes de guardar, así que tu cambio no se
+  pierde.
+* El fichero **no** puede vivir en el repositorio del código: es público. El
+  `watchlist.md` de allí está vacío a propósito y hay tests que lo comprueban.
+
 #### Comprobación
 
-A partir de ahí, el workflow clona ese repositorio al empezar, lee el estado,
-lo actualiza y lo vuelve a subir. En los ficheros `state/` del repositorio del
-código solo quedan las plantillas vacías.
+A partir de ahí, el workflow clona ese repositorio al empezar, lee el estado y
+la lista, lo actualiza y lo vuelve a subir. En los ficheros `state/` del
+repositorio del código solo quedan las plantillas vacías.
 
 En el log de la primera ejecución debe aparecer
 `Estado en tu-usuario/etoro-monitor-estado, con clave SSH (deploy key)`
-(o `con token`).
+(o `con token`). Los nombres de la lista saldrán **enmascarados** (`***`): el
+log de este repositorio es público y no debe llevar a quién sigues.
 
 #### Si algo falla, hay un diagnóstico
 
 En **Actions → Diagnóstico de la credencial de estado → Run workflow**. No
 envía nada a Telegram ni toca el estado: solo revisa la credencial y prueba la
-conexión, diciéndote qué está mal.
+conexión, diciéndote qué está mal. También te dice si el fichero
+`watchlist.md` (la lista de personas) está en ese repositorio, que es el otro
+fallo que se confunde con uno de credenciales.
 
 Entre otras cosas comprueba si el contenido del secreto es realmente una
 clave, y **muestra la clave pública que corresponde a ese secreto**, para que
@@ -231,10 +284,15 @@ que programas en tu hora local y ya está. Las ejecuciones entran como
 
 1. **Actions → Probar Telegram** → debe llegarte un mensaje al móvil.
 2. **Actions → Diagnóstico eToro** → te dice si eToro responde desde GitHub.
-3. **Actions → Monitor eToro → Run workflow** con **`dry_run` marcado** → recorre
+3. **Actions → Diagnóstico de la credencial de estado** → confirma que la
+   credencial funciona y que `watchlist.md` está en el repositorio de estado.
+4. **Actions → Monitor eToro → Run workflow** con **`dry_run` marcado** → recorre
    las carteras y muestra los mensajes en el log **sin enviar nada**.
-4. El mismo, sin `dry_run` → recibes la "línea base".
-5. Otra vez → debe decir `sin operaciones` y `STATE_CHANGED=false`.
+5. El mismo, sin `dry_run` → recibes la "línea base".
+6. Otra vez → debe decir `sin operaciones` y `STATE_CHANGED=false`.
+
+En el log, los nombres de las personas salen enmascarados (`***`): es
+deliberado, porque el log de este repositorio lo puede leer cualquiera.
 
 ---
 
@@ -246,7 +304,13 @@ pip install -r requirements.txt
 
 export TELEGRAM_BOT_TOKEN="123456:AA..."
 export TELEGRAM_CHAT_ID="123456789"
-export ETORO_USERS="usuario_ejemplo"
+
+# La lista de personas y el estado viven en el repositorio privado: clónalo y
+# apunta ahí (la carpeta está en .gitignore, así que no puede colarse en el
+# repositorio público).
+git clone --depth 1 git@github.com:tu-usuario/etoro-monitor-estado.git .state-repo
+export ETORO_WATCHLIST_MD=".state-repo/watchlist.md"
+export ETORO_STATE=".state-repo/state.json"
 
 python -m etoro_monitor check --dry-run         # mira sin enviar nada
 python -m etoro_monitor check                   # revisa y manda a Telegram
@@ -255,7 +319,7 @@ python -m etoro_monitor show usuario_ejemplo    # cartera actual por pesos
 python -m etoro_monitor resolve usuario_ejemplo # nombre -> CID
 python -m etoro_monitor ping                    # ¿responden los endpoints?
 python -m etoro_monitor notify-test             # mensaje de prueba
-python -m pytest tests -q                       # 162 tests, sin red
+python -m pytest tests -q                       # 177 tests, sin red
 ```
 
 ---
@@ -329,9 +393,12 @@ no se puede leer una cartera, se deja la foto anterior intacta.
 
 ## 5. Elegir a quién vigilar
 
-`watchlist.md`, un usuario por línea. Detalles:
+La lista es el `watchlist.md` del **repositorio de estado** (privado), un usuario
+por línea. Para cambiarla, ábrelo en la web de GitHub, edita y guarda: no hay
+que tocar el código ni el workflow.
 
-* Las líneas que empiezan por `#` se ignoran.
+* Las líneas que empiezan por `#` se ignoran (así desactivas a alguien sin
+  borrarlo).
 * Las mayúsculas dan igual (`UsuarioEjemplo` = `usuarioejemplo`), y cambiar
   solo eso no pierde la memoria.
 * Por comodidad también admite viñetas (`- usuario_ejemplo`) y la URL completa.
@@ -339,8 +406,12 @@ no se puede leer una cartera, se deja la foto anterior intacta.
   siguiente pasada.** Así no se acumula información de gente a la que ya no
   sigues, y si lo vuelves a añadir empieza limpio (con su línea base) en vez de
   avisarte de todo lo que hizo mientras no lo mirabas.
+* **El `watchlist.md` del repositorio de código se ignora a propósito**: es
+  público y solo contiene el cartel que explica dónde está la lista. Hay tests
+  que fallan si alguien le mete usuarios.
 
 ```bash
+# Con el repositorio de estado clonado en .state-repo (ver sección 3):
 python -m etoro_monitor users   # a quién sigues, y a quién va a dejar de seguir
 ```
 
@@ -354,7 +425,9 @@ Hay dos guardianes automáticos en `tests/test_privacidad.py` que fallan si:
 
 * se cuela un token, un correo, un chat_id o una ruta de tu ordenador, o
 * aparece en el código, el README o los tests **alguno de los usuarios que
-  sigues** (la lista solo debe estar en `watchlist.md`).
+  sigues** (la lista solo debe estar en el `watchlist.md` del repositorio de
+  estado; si tienes ese repositorio clonado en `.state-repo`, el guardián lee
+  también esa copia y comprueba que ningún nombre se ha colado aquí).
 
 ### Puedes tener el código público sin publicar datos
 
@@ -364,10 +437,16 @@ así:
 
 | Qué | Cómo |
 |---|---|
-| A quién sigues | Deja `watchlist.md` vacío y pon los usuarios en el secreto **`ETORO_USERS`** (separados por comas) |
-| El estado de las carteras | Guárdalo en un **repositorio privado** aparte (ver [2.6](#26-el-estado-en-un-repositorio-privado-recomendado)) |
+| A quién sigues | En el `watchlist.md` del **repositorio privado de estado** (ver [2.6](#26-el-estado-en-un-repositorio-privado-recomendado), paso 3). El de este repositorio se queda vacío |
+| El estado de las carteras | En el **repositorio privado** aparte (ver [2.6](#26-el-estado-en-un-repositorio-privado-recomendado)) |
 
 Con eso, el repositorio público solo contiene código y documentación.
+
+> **El log también es público**, y es el sitio por el que más fácilmente se
+> escapa la lista. El monitor imprime a quién sigue al empezar (nivel INFO), así
+> que el workflow enmascara cada nombre con `::add-mask::` antes de ejecutarlo:
+> en el log los verás como `***`. Si añades logs nuevos, cuida que no lleven
+> nombres de usuario sin enmascarar.
 
 > **Por qué el estado también importa:** no es solo "a quién sigues". Es un
 > registro con fecha y hora de las operaciones de esas personas. eToro solo
@@ -454,7 +533,7 @@ etoro-monitor/
 │   ├── render.py                # redacta los mensajes
 │   ├── state.py                 # estado persistente
 │   ├── cooldown.py              # no repetir avisos de error
-│   ├── watchlist.py             # lee watchlist.md
+│   ├── watchlist.py             # lee watchlist.md (el del repo de estado)
 │   ├── config.py                # une watchlist.md + watchlist.yml
 │   ├── schedule.py              # ventana horaria
 │   ├── telegram.py              # envío a Telegram
@@ -464,12 +543,21 @@ etoro-monitor/
 │   └── cooldown.json            # plantilla: marcas de avisos
 │                                # (con la opción 2.6, los de verdad viven en
 │                                #  el repositorio privado)
-├── tests/                       # 162 tests, sin red
+├── tests/                       # 177 tests, sin red
 │   ├── test_privacidad.py       #   vigila que no se cuelen datos personales
 │   └── test_workflow.py         #   valida el YAML y el shell de los workflows
-├── watchlist.md                 # ⬅ A QUIÉN SIGUES
+├── watchlist.md                 # cartel: AQUÍ NO VA LA LISTA (es pública)
 ├── watchlist.yml                # ajustes técnicos
 └── requirements.txt
+```
+
+Y en el **repositorio de estado** (privado), que se clona en `.state-repo`:
+
+```
+etoro-monitor-estado/
+├── watchlist.md                 # ⬅ A QUIÉN SIGUES (un usuario por línea)
+├── state.json                   # memoria del monitor
+└── cooldown.json                # marcas de avisos
 ```
 
 ### Los endpoints que usa
@@ -537,7 +625,10 @@ ejecuciones corren en el repositorio público, y los datos a salvo.
 | No llega nada a Telegram | No le has escrito nunca al bot, o el `chat_id` está mal |
 | El workflow no arranca con cron-job.org | Token sin permiso *Actions: read/write*, o URL/rama incorrecta |
 | "Telegram no está configurado" | Faltan los secretos |
-| "No hay ningún usuario que seguir" | `watchlist.md` vacío y sin secreto `ETORO_USERS` |
+| "No encuentro .state-repo/watchlist.md" | La lista vive en el repositorio de estado: o falla la credencial (`STATE_REPO` + deploy key/token) o no has creado `watchlist.md` allí. Lo distingue *Diagnóstico de la credencial de estado* |
+| "No hay ningún usuario que seguir" | El `watchlist.md` del repositorio de estado existe pero está vacío (o todo comentado con `#`) |
+| Sigo sin avisos de una persona que añadí | ¿Dejaste el secreto `ETORO_USERS`? Tiene prioridad sobre el fichero: bórralo |
+| Los nombres aparecen como `***` en el log | Es lo correcto: el workflow los enmascara porque el log es público |
 | "eToro ha devuelto un captcha" | Has ido muy rápido. Espera o sube `delay_seconds` |
 | "eToro ha limitado las peticiones (429)" | Vas demasiado rápido: espacia el cron o sube `delay_seconds` |
 | "la cartera es privada" | Ese usuario ha cerrado su cartera pública |

@@ -1,9 +1,10 @@
 """Guardián de privacidad: el repositorio no debe contener datos personales.
 
-Estos tests no comprueban "a quién sigues" (eso es tu config privada en
-`watchlist.md`, y puede estar vacío). Comprueban que no se cuelen por
-descuido **secretos**, **correos**, **identificadores de chat** ni **rutas
-de tu ordenador** en ningún fichero del proyecto.
+Estos tests no comprueban "a quién sigues" (esa lista es tu config privada:
+vive en el `watchlist.md` del repositorio de estado, que se clona en
+`.state-repo`, y este repositorio debe quedarse sin nombres). Comprueban que no
+se cuelen por descuido **secretos**, **correos**, **identificadores de chat**
+ni **rutas de tu ordenador** en ningún fichero del proyecto.
 
 Sirven también para el futuro: si algún día pegas un token en un fichero y
 lo commiteas, el test te avisa antes.
@@ -26,7 +27,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 RAIZ = Path(__file__).resolve().parents[1]
 
 # Ficheros y carpetas que no se revisan
-EXCLUIR_DIRS = {".git", "__pycache__", ".pytest_cache", ".venv", "venv", "node_modules"}
+#
+# .state-repo es el clon del repositorio de estado (privado): contiene a
+# propósito la lista de personas y sus carteras. Está en .gitignore, así que no
+# puede acabar en este repositorio, y por eso no se escanea.
+EXCLUIR_DIRS = {
+    ".git", "__pycache__", ".pytest_cache", ".venv", "venv", "node_modules",
+    ".state-repo",
+}
 EXCLUIR_SUFIJOS = {
     ".pyc", ".pyo", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico",
     ".pdf", ".zip", ".gz", ".whl", ".xlsx", ".db", ".sqlite",
@@ -177,10 +185,15 @@ def test_el_estado_inicial_esta_vacio():
 
 
 def _usuarios_que_sigo() -> list[str]:
-    """Los usuarios de la lista de seguimiento (fichero y/o secreto).
+    """Los usuarios de la lista de seguimiento, esté donde esté.
 
     Se usa el mismo parser que en producción, para que las reglas sean las
     mismas: comentarios HTML, líneas con #, viñetas, etc.
+
+    Se miran tres sitios: el `watchlist.md` de este repositorio (que debe estar
+    vacío: es el cartel que explica dónde está la lista de verdad), la copia
+    privada que el workflow clona en `.state-repo` si estás trabajando en
+    local, y la variable ETORO_USERS (formato antiguo).
     """
     import os
     import re
@@ -188,9 +201,9 @@ def _usuarios_que_sigo() -> list[str]:
     from etoro_monitor.watchlist import load_usernames
 
     usuarios: list[str] = []
-    md = RAIZ / "watchlist.md"
-    if md.exists():
-        usuarios += load_usernames(md)
+    for ruta in (RAIZ / "watchlist.md", RAIZ / ".state-repo" / "watchlist.md"):
+        if ruta.exists():
+            usuarios += load_usernames(ruta)
     for parte in re.split(r"[,\s]+", os.environ.get("ETORO_USERS", "")):
         if parte.strip():
             usuarios.append(parte.strip())
@@ -198,7 +211,10 @@ def _usuarios_que_sigo() -> list[str]:
 
 
 def test_los_usuarios_que_sigo_no_se_cuelan_en_el_codigo():
-    """La lista de seguimiento solo debe estar en watchlist.md.
+    """La lista de seguimiento no debe aparecer en ningún fichero del repo.
+
+    Su sitio es el repositorio de estado (privado). Aquí solo vale el
+    watchlist.md vacío, que es el cartel que explica dónde está la lista.
 
     Si escribes tu usuario real en el README, en un comentario del código o en
     un test, este guardián lo detecta: el repositorio debe poder ser público
@@ -244,6 +260,10 @@ def test_el_gitignore_cubre_lo_volatil():
     contenido = (RAIZ / ".gitignore").read_text(encoding="utf-8")
     assert ".env" in contenido
     assert "runtime.json" in contenido or "state/*.runtime.json" in contenido
+    # .state-repo es el clon del repositorio de estado (privado): lleva la
+    # lista de personas y sus carteras. Si una ejecución local lo deja ahí,
+    # no debe poder colarse en el repositorio público con un 'git add'.
+    assert ".state-repo" in contenido
 
 
 def _token_falso() -> str:

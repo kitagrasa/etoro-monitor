@@ -1,11 +1,14 @@
 # ---------------------------------------------------------------------------
 # Ajustes técnicos del monitor. NO hace falta que toques esto.
 #
-# ¿A quién se sigue? Eso está en watchlist.md, una persona por línea.
+# ¿A quién se sigue? A un fichero watchlist.md, una persona por línea... pero
+# NO al de este repositorio: al del REPOSITORIO DE ESTADO (privado), que el
+# workflow clona en .state-repo. Aquí no se pone ningún nombre, porque este
+# repositorio puede ser público. Ver watchlist.md.
 # ---------------------------------------------------------------------------
 
-# Lista de usuarios heredada del formato antiguo. Ahora manda watchlist.md;
-# deja esto vacío y edita watchlist.md para elegir a quién seguir.
+# Lista de usuarios heredada del formato antiguo. Deja esto vacío: la lista
+# buena está en watchlist.md del repositorio de estado.
 users: []
 
 # Cómo de prudente eres con la API pública de eToro.

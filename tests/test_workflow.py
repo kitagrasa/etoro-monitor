@@ -308,6 +308,92 @@ def test_las_claves_de_github_estan_bien_formadas(monitor):
 
 
 # ---------------------------------------------------------------------- #
+# La lista de personas vive en el repositorio de estado (privado)
+# ---------------------------------------------------------------------- #
+def _paso_revisar(monitor: dict) -> dict:
+    return [
+        p
+        for p in pasos(monitor)
+        if p.get("name") == "Revisar carteras y avisar por Telegram"
+    ][0]
+
+
+def test_la_lista_se_lee_del_repositorio_de_estado(monitor):
+    """La lista no puede estar en este repositorio, que es público.
+
+    Se lee de `.state-repo/watchlist.md`, el repositorio de estado (privado)
+    que el paso anterior clona. El `watchlist.md` de aquí es una plantilla.
+    """
+    assert _paso_revisar(monitor)["env"]["ETORO_WATCHLIST_MD"] == (
+        ".state-repo/watchlist.md"
+    )
+
+
+def test_el_workflow_no_usa_el_secreto_etoro_users(monitor):
+    """Si el workflow pasara `ETORO_USERS`, el fichero se ignoraría en silencio.
+
+    Ese secreto tiene prioridad sobre `watchlist.md` (ver `config.py`), así que
+    volver a enchufarlo dejaría la lista del repositorio de estado sin efecto.
+    Y como los secretos son de solo escritura, nadie vería por qué sus cambios
+    no hacen nada hasta perder un buen rato.
+    """
+    for paso in pasos(monitor):
+        assert "ETORO_USERS" not in (paso.get("env") or {}), (
+            f"el paso «{paso.get('name')}» pasa ETORO_USERS: ignoraría "
+            f"watchlist.md del repositorio de estado"
+        )
+    assert "ETORO_USERS" not in monitor["jobs"]["monitor"].get("env", {})
+
+
+def test_la_falta_de_lista_se_explica_bien(monitor):
+    """Sin lista, el error del monitor despista.
+
+    Diría «No hay ningún usuario que seguir. Escribe uno por línea en
+    watchlist.md», que manda a mirar el fichero público, donde precisamente no
+    hay que escribir nada. El fallo real casi siempre es el clon del
+    repositorio de estado o su credencial.
+    """
+    run = _paso_revisar(monitor)["run"]
+    assert "::error::" in run, "el fallo no se marca como error del workflow"
+    assert "repositorio de estado" in run, "el mensaje no dice dónde está la lista"
+    assert "exit 1" in run, "el paso seguiría adelante sin lista"
+
+
+def test_los_nombres_se_enmascaran_en_el_log(monitor):
+    """El log de este repositorio es público: no puede llevar los nombres.
+
+    Se enmascaran con el MISMO parser que usa el monitor, para que la cadena
+    enmascarada sea exactamente la que se imprime después. Con las líneas en
+    crudo, una viñeta o una URL dejarían el nombre a la vista.
+    """
+    run = _paso_revisar(monitor)["run"]
+    assert "::add-mask::" in run, "los nombres van al log sin enmascarar"
+    assert "load_usernames" in run, (
+        "se enmascaran las líneas del fichero tal cual, no los usuarios que "
+        "saca el parser: una viñeta o una URL esquivarían el enmascarado"
+    )
+
+
+def test_el_push_no_revierte_una_edicion_de_la_lista(monitor):
+    """El push --force reemplaza la rama entera del repositorio de estado.
+
+    Si has editado watchlist.md en GitHub mientras la ejecución estaba en
+    marcha, el clon no se ha enterado y la compactación del historial
+    revertiría tu cambio sin decir nada. Por eso se refresca del remoto justo
+    antes de fotografiar el estado.
+    """
+    guardar = [p for p in pasos(monitor) if p.get("name") == "Guardar el estado"][0]
+    run = guardar["run"]
+    indice_fetch = run.index("FETCH_HEAD")
+    indice_add = run.index("git add -A")
+    assert indice_fetch < indice_add, (
+        "la lista se refresca después de preparar el commit: el push --force "
+        "revertiría la edición"
+    )
+    assert "watchlist.md" in run[indice_fetch:indice_add]
+
+
+# ---------------------------------------------------------------------- #
 # Los demás workflows de diagnóstico
 # ---------------------------------------------------------------------- #
 def test_el_workflow_de_telegram_tiene_su_comando():
@@ -320,3 +406,14 @@ def test_los_workflows_de_diagnostico_usan_ping_y_resolve():
     doc = cargar(RAIZ / ".github" / "workflows" / "test-etoro.yml")
     texto = "\n".join(p.get("run", "") for p in pasos(doc))
     assert "ping" in texto and "resolve" in texto
+
+
+def test_el_diagnostico_avisa_si_falta_la_lista():
+    """El diagnóstico debe distinguir «falta la lista» de «credencial rota».
+
+    Son los dos fallos que se parecen, y el mensaje del monitor manda a mirar
+    el fichero público en los dos casos.
+    """
+    doc = cargar(RAIZ / ".github" / "workflows" / "diagnostico-estado.yml")
+    texto = "\n".join(p.get("run", "") for p in pasos(doc))
+    assert "watchlist.md" in texto
