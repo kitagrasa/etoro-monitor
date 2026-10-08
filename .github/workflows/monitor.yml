@@ -1,0 +1,396 @@
+name: Monitor eToro -> Telegram
+
+# ---------------------------------------------------------------------------
+# Revisa las carteras públicas de los usuarios de watchlist.md (una persona por
+# línea, en el repositorio de estado privado) y manda un mensaje a Telegram
+# cuando alguno compra o vende, total o parcialmente.
+#
+# NO se ejecuta por sí solo: lo dispara cron-job.org (ver README).
+#
+# No hace login en eToro ni requiere KYC: solo lee los endpoints públicos que
+# carga la propia web de eToro.
+#
+# ---------------------------------------------------------------------------
+# DÓNDE VIVE LA LISTA DE PERSONAS A SEGUIR
+# ---------------------------------------------------------------------------
+# En un fichero `watchlist.md` DENTRO DEL REPOSITORIO DE ESTADO (privado), que
+# es lo que el paso "Preparar el estado" clona en .state-repo.
+#
+# El `watchlist.md` de ESTE repositorio es solo una plantilla y NO se lee: este
+# repositorio es público, y ahí la lista quedaría a la vista de cualquiera (y
+# archivada para siempre en el historial de git).
+#
+# Se eligió un fichero en vez de un secreto `ETORO_USERS` porque los secretos de
+# GitHub son de SOLO ESCRITURA: ni la web ni la API muestran su valor. Añadir a
+# una persona obligaba a reescribir la lista entera a mano en un cuadro en
+# blanco. Un fichero de un repositorio privado se edita con el contenido a la
+# vista: abres, añades una línea, guardas.
+#
+# Los nombres se enmascaran en el log (paso "Revisar carteras"), porque los
+# logs de este repositorio, que es público, los lee cualquiera.
+#
+# ---------------------------------------------------------------------------
+# DÓNDE VIVE EL ESTADO (esto es lo que permite tener el repo público)
+# ---------------------------------------------------------------------------
+# El monitor necesita recordar la foto anterior de cada cartera. Esa foto
+# contiene a quién sigues y cuánto tiene de cada activo, así que NO conviene
+# publicarla.
+#
+# El estado se guarda en un repositorio PRIVADO aparte, y para escribirlo hay
+# dos formas de identificarse. Basta con configurar UNA:
+#
+#   1. STATE_REPO + STATE_DEPLOY_KEY   (recomendado)
+#      Una clave SSH de solo ese repositorio. NO CADUCA, y no se puede
+#      configurar por error dándole más acceso del que tiene.
+#
+#   2. STATE_REPO + STATE_REPO_TOKEN   (alternativa)
+#      Un token fine-grained con permiso Contents: read/write sobre ese repo.
+#      Ojo: caduca, salvo que elijas "No expiration".
+#
+# Si no configuras ninguna, el estado se guarda en este mismo repositorio.
+# Eso está bien si este repositorio ya es privado.
+# ---------------------------------------------------------------------------
+on:
+  # A propósito no hay 'schedule': lo dispara cron-job.org.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Solo mostrar los avisos en el log, sin enviarlos a Telegram"
+        type: boolean
+        default: false
+      reset_state:
+        description: "Olvidar el estado guardado (vuelve a mandar la línea base)"
+        type: boolean
+        default: false
+
+# Evita que dos ejecuciones se pisen al guardar el estado.
+concurrency:
+  group: etoro-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Rama del repositorio de estado donde se guarda la foto de las carteras.
+      # Si tu repositorio de estado usa 'master' en vez de 'main', cámbialo aquí.
+      STATE_BRANCH: main
+
+      # Compactar el historial del repositorio de estado.
+      #
+      #   true  (recomendado): cada vez que hay algo que guardar, se deja el
+      #          repositorio con UN ÚNICO commit (el estado actual). No se
+      #          acumula el histórico de las operaciones de nadie.
+      #   false: los commits se van acumulando uno detrás de otro.
+      #
+      # Para qué sirve el histórico: solo para poder deshacer un cambio a
+      # mano. El monitor no lo usa: siempre lee el estado actual.
+      COMPACTAR_HISTORIAL: true
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      # ------------------------------------------------------------------
+      # Trae el estado desde el repositorio privado, si está configurado.
+      # STATE_REPO puede ser un secreto o una variable del repositorio
+      # ("Settings -> Secrets and variables -> Actions").
+      # ------------------------------------------------------------------
+      - name: Preparar el estado
+        id: estado
+        env:
+          STATE_REPO: ${{ secrets.STATE_REPO || vars.STATE_REPO }}
+          STATE_DEPLOY_KEY: ${{ secrets.STATE_DEPLOY_KEY }}
+          STATE_REPO_TOKEN: ${{ secrets.STATE_REPO_TOKEN }}
+        run: |
+          set -e
+
+          # Trae el estado del repositorio remoto, quedandose SOLO con el
+          # ultimo commit (no hace falta el historico para nada).
+          #
+          # --depth 1 : baja unicamente el ultimo commit.
+          # --branch  : imprescindible. Sin esto, git solo trae la rama por
+          #             defecto del remoto, que puede no ser la del estado
+          #             (por ejemplo si el repositorio se creo con 'master' y
+          #             el estado vive en 'main'). En ese caso el clon sale
+          #             VACIO y el monitor creeria que es la primera vez en
+          #             cada ejecucion: repetiria avisos sin parar.
+          #
+          # Si el repositorio esta recien creado (vacio) o no tiene todavia la
+          # rama del estado, se empieza de cero en local; el primer push la
+          # creara.
+          clonar_estado() {
+            rm -rf .state-repo
+            if git clone --quiet --depth 1 --branch "$STATE_BRANCH" "$1" .state-repo 2>/dev/null; then
+              echo "Estado descargado (solo el ultimo commit)."
+            else
+              echo "Repositorio de estado vacio o sin la rama $STATE_BRANCH: empiezo de cero."
+              rm -rf .state-repo
+              mkdir -p .state-repo
+              git -C .state-repo init --quiet
+              git -C .state-repo remote add origin "$1"
+              git -C .state-repo checkout --quiet -B "$STATE_BRANCH"
+            fi
+          }
+
+          if [ -n "$STATE_REPO" ] && [ -n "$STATE_DEPLOY_KEY" ]; then
+            CREDENCIAL=deploy_key
+          elif [ -n "$STATE_REPO" ] && [ -n "$STATE_REPO_TOKEN" ]; then
+            CREDENCIAL=token
+          else
+            CREDENCIAL=ninguna
+          fi
+
+          if [ "$CREDENCIAL" = "deploy_key" ]; then
+            echo "Estado en $STATE_REPO, con clave SSH (deploy key)."
+
+            # Las claves públicas de GitHub se fijan aquí a propósito, en vez
+            # de usar 'ssh-keyscan'. Con ssh-keyscan la primera conexión se
+            # acepta sin comprobarla (TOFU), y ahí cabría un intermediario.
+            # Estas son las que publica GitHub en https://api.github.com/meta
+            mkdir -p ~/.ssh
+            chmod 700 ~/.ssh
+            cat > ~/.ssh/known_hosts <<'CLAVES_DE_GITHUB'
+          github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
+          github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=
+          CLAVES_DE_GITHUB
+            chmod 600 ~/.ssh/known_hosts
+
+            # La clave privada se guarda con permisos restringidos: ssh se
+            # niega a usarla si es legible por otros.
+            printf '%s\n' "$STATE_DEPLOY_KEY" > ~/.ssh/state_key
+            chmod 600 ~/.ssh/state_key
+
+            # IMPORTANTE: git NO usa esta clave por su cuenta. Si no se le dice,
+            # busca las claves de siempre (~/.ssh/id_ed25519, id_rsa...) y el
+            # clon falla con 'Permission denied (publickey)' aunque la deploy
+            # key esté perfectamente puesta en GitHub.
+            #
+            # GIT_SSH_COMMAND vale para el clon; en el paso de guardar se
+            # configura core.sshCommand en el repositorio clonado.
+            export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/state_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+            clonar_estado "git@github.com:${STATE_REPO}.git"
+            unset GIT_SSH_COMMAND
+
+            # Se guarda en la configuración del repositorio (no en la URL, y
+            # sin el secreto dentro) para que el push de más abajo la use sola.
+            git -C .state-repo config core.sshCommand \
+              "ssh -i $HOME/.ssh/state_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+            echo "modo=repo_privado" >> "$GITHUB_OUTPUT"
+
+          elif [ "$CREDENCIAL" = "token" ]; then
+            echo "Estado en $STATE_REPO, con token."
+            clonar_estado \
+              "https://x-access-token:${STATE_REPO_TOKEN}@github.com/${STATE_REPO}.git"
+            # El token no se queda guardado en la configuración de git.
+            git -C .state-repo remote set-url origin "https://github.com/${STATE_REPO}.git"
+            echo "modo=repo_privado" >> "$GITHUB_OUTPUT"
+
+          else
+            if [ -n "$STATE_REPO" ] || [ -n "$STATE_DEPLOY_KEY" ] || [ -n "$STATE_REPO_TOKEN" ]; then
+              echo "::warning::Para usar un repositorio de estado hacen falta STATE_REPO y (STATE_DEPLOY_KEY o STATE_REPO_TOKEN). Uso el estado de este repositorio."
+            else
+              echo "Sin repositorio de estado configurado: uso el de este repositorio."
+            fi
+            echo "modo=local" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -d .state-repo ]; then
+            # Primera vez: el repositorio está vacío y hay que crear los ficheros.
+            [ -f .state-repo/state.json ]    || printf '{\n  "version": 3,\n  "instruments": {},\n  "users": {}\n}\n'    > .state-repo/state.json
+            [ -f .state-repo/cooldown.json ] || printf '{\n  "version": 1,\n  "sent": {}\n}\n' > .state-repo/cooldown.json
+
+            echo "state_path=.state-repo/state.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "state_path=state/state.json" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ------------------------------------------------------------------
+      # Aquí está todo el trabajo. Los secretos se leen del entorno.
+      # ------------------------------------------------------------------
+      - name: Revisar carteras y avisar por Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # La lista de personas vive en el repositorio de estado (privado),
+          # que el paso anterior ha clonado aquí. El watchlist.md de ESTE
+          # repositorio no se usa a propósito: es público.
+          ETORO_WATCHLIST_MD: .state-repo/watchlist.md
+          ETORO_STATE: ${{ steps.estado.outputs.state_path }}
+          LOG_LEVEL: INFO
+        run: |
+          set -e
+
+          # Sin la lista no hay nada que vigilar. El error que daría el monitor
+          # ("No hay ningún usuario que seguir") mandaría a mirar el fichero
+          # equivocado cuando el problema es del repositorio de estado o de su
+          # credencial, así que aquí se dice lo que pasa de verdad.
+          if [ ! -f "$ETORO_WATCHLIST_MD" ]; then
+            echo "::error::No encuentro $ETORO_WATCHLIST_MD. La lista de personas vive en el repositorio de estado (privado): revisa que STATE_REPO y su credencial (STATE_DEPLOY_KEY o STATE_REPO_TOKEN) funcionan, y que existe el fichero watchlist.md en ese repositorio. El diagnóstico 'Diagnóstico de la credencial de estado' te dice cuál de las dos cosas falla."
+            exit 1
+          fi
+
+          # Los nombres acaban en el log, y el log de este repositorio (público)
+          # lo lee cualquiera. Se enmascaran uno a uno con el MISMO parser que
+          # usa el monitor, para enmascarar exactamente las cadenas que se van a
+          # imprimir (el parser admite viñetas, URLs y mayúsculas, así que un
+          # bucle que leyera las líneas en crudo no bastaría).
+          python - "$ETORO_WATCHLIST_MD" <<'PY'
+          import sys
+
+          from etoro_monitor.watchlist import load_usernames
+
+          for usuario in load_usernames(sys.argv[1]):
+              print(f"::add-mask::{usuario}")
+          PY
+
+          ARGS=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ "${{ inputs.reset_state }}" = "true" ]; then
+            ARGS="$ARGS --reset"
+          fi
+          # Si lo lanzas a mano desde la pestaña Actions, se ejecuta siempre.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ARGS="$ARGS --force"
+          fi
+          python -m etoro_monitor check $ARGS
+
+      # ------------------------------------------------------------------
+      # El estado solo cambia cuando hay operaciones, así que esto solo
+      # escribe cuando alguien ha comprado o vendido de verdad.
+      # Se ejecuta aunque el paso anterior falle, para no perder el estado
+      # parcial (y no repetir avisos en la siguiente vuelta).
+      # ------------------------------------------------------------------
+      - name: Guardar el estado
+        if: always()
+        env:
+          MODO: ${{ steps.estado.outputs.modo }}
+        run: |
+          set -e
+          IDENTIDAD_NAME="etoro-monitor[bot]"
+          IDENTIDAD_EMAIL="etoro-monitor@users.noreply.github.com"
+          MENSAJE="estado: $(date -u '+%Y-%m-%d %H:%M UTC') [skip ci]"
+
+          if [ "$MODO" = "repo_privado" ]; then
+            if [ ! -d .state-repo ]; then
+              echo "::error::No se pudo preparar el repositorio de estado."
+              exit 1
+            fi
+            cd .state-repo
+
+            # La identidad hay que configurarla DENTRO del repositorio de
+            # estado: es otro repositorio distinto y tiene su propia
+            # configuración. Sin esto, el commit falla con "Author identity
+            # unknown".
+            git config user.name  "$IDENTIDAD_NAME"
+            git config user.email "$IDENTIDAD_EMAIL"
+
+            # Si has añadido (o quitado) a alguien en watchlist.md desde la web
+            # de GitHub mientras esta ejecución estaba en marcha, este clon no
+            # se ha enterado y el push --force de más abajo revertiría tu cambio
+            # en silencio. Se trae la última versión del remoto solo para ese
+            # fichero antes de fotografiar el estado.
+            git fetch --quiet --depth 1 origin "$STATE_BRANCH" || true
+            git checkout --quiet FETCH_HEAD -- watchlist.md 2>/dev/null || true
+
+            git add -A
+            if git diff --cached --quiet; then
+              echo "Sin cambios en el estado."
+              exit 0
+            fi
+
+            if [ "$COMPACTAR_HISTORIAL" = "true" ]; then
+              # Se crea un commit NUEVO SIN PADRE: el repositorio se queda con
+              # un único commit, el estado actual. Así no se acumula un
+              # histórico con las posiciones de nadie a lo largo del tiempo.
+              #
+              # El historial no hace falta para nada: el monitor solo lee el
+              # estado actual (nunca consulta commits anteriores).
+              git checkout --quiet --orphan _estado_actual
+              git commit --quiet -m "$MENSAJE"
+              git branch --quiet -M "$STATE_BRANCH"
+              # La credencial (clave SSH o token) va en la configuración del
+              # clon, así que aquí no hay que poner ningún secreto.
+              git push --quiet --force origin "HEAD:$STATE_BRANCH"
+              echo "Estado guardado y historial compactado (1 commit) en $STATE_REPO"
+            else
+              git commit --quiet -m "$MENSAJE"
+              git push --quiet origin "HEAD:$STATE_BRANCH"
+              echo "Estado guardado en $STATE_REPO (histórico acumulativo)"
+            fi
+          else
+            # En el modo local sí es este repositorio, así que la identidad
+            # se configura aquí.
+            git config user.name  "$IDENTIDAD_NAME"
+            git config user.email "$IDENTIDAD_EMAIL"
+
+            git add state/state.json state/cooldown.json
+            if git diff --cached --quiet; then
+              echo "Sin cambios en el estado."
+              exit 0
+            fi
+            git commit --quiet -m "$MENSAJE"
+            # En eventos 'workflow_dispatch' el checkout puede dejar la HEAD
+            # desacoplada: se empuja explícitamente a la rama.
+            BRANCH="${GITHUB_REF_NAME:-main}"
+            git fetch --quiet origin "$BRANCH" || true
+            git rebase "origin/$BRANCH" >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1 || true
+            git push --quiet origin "HEAD:$BRANCH"
+            echo "Estado guardado en este repositorio."
+          fi
+
+      # ------------------------------------------------------------------
+      # Red de seguridad: si algo ha fallado antes de llegar aquí, avisar.
+      #
+      # Sin esto, un problema con la credencial del estado (clave revocada,
+      # token caducado, repositorio renombrado, nombre mal escrito) dejaría
+      # el monitor MUDO: el paso de revisar carteras no llegaría a
+      # ejecutarse, no habría ningún aviso de Telegram y lo único visible
+      # sería una ❌ en la pestaña Actions, que es fácil no ver.
+      #
+      # Va el último para que el estado se intente guardar primero.
+      # ------------------------------------------------------------------
+      - name: Avisar del fallo por Telegram
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "No hay credenciales de Telegram: no puedo avisar del fallo."
+            exit 0
+          fi
+
+          TEXTO="⚠️ <b>El monitor de eToro ha fallado</b>
+
+          Esta ejecución no ha terminado bien, así que puede que no hayas recibido los avisos que tocaban.
+
+          👉 <a href=\"${RUN_URL}\">Ver el detalle del error</a>
+
+          Si el problema es de credenciales, revisa los secretos STATE_REPO y STATE_DEPLOY_KEY (o STATE_REPO_TOKEN): sin ellos no se puede clonar el repositorio de estado, así que el monitor tampoco encuentra la lista de personas (watchlist.md) ni el estado."
+
+          curl -sS --max-time 20 --retry 2 --retry-delay 2 \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "parse_mode=HTML" \
+            -d "disable_web_page_preview=true" \
+            --data-urlencode "text=${TEXTO}" \
+            >/dev/null \
+            && echo "Aviso de fallo enviado a Telegram." \
+            || echo "::warning::No he podido enviar el aviso de fallo a Telegram."

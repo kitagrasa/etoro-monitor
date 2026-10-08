@@ -1,0 +1,17 @@
+# Secretos y datos locales
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# El estado se versiona en state/state.json porque es la memoria del bot.
+# Pero los datos volátiles de cada ejecución no interesan.
+state/*.runtime.json
+state/*.tmp
+state/*.bak
+
+# Si usas un repositorio privado para el estado (ver README, sección 2.6),
+# el workflow clona ahí la carpeta .state-repo. No debe acabar en el repo.
+.state-repo/
