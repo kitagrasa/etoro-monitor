@@ -14,8 +14,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from etoro_monitor.models import Asset, EtoroUser  # noqa: E402
+from etoro_monitor.models import Asset, EtoroUser, Position  # noqa: E402
 from etoro_monitor.state import (  # noqa: E402
+    STATE_VERSION,
     RuntimeState,
     State,
     StateCorruptError,
@@ -31,7 +32,12 @@ def usuario(nombre: str) -> EtoroUser:
 
 
 def asset(instrument_id: int, units: float, *, direction: str = "Buy") -> Asset:
-    return Asset(instrument_id, direction, units, 1.0)
+    return Asset(
+        instrument_id=instrument_id,
+        direction=direction,
+        positions={instrument_id: Position(instrument_id, units)},
+        invested_pct=1.0,
+    )
 
 
 # ---------------------------------------------------------------------- #
@@ -75,8 +81,55 @@ def test_roundtrip(tmp_path):
     recuperado = releido.user(EJEMPLO_MIN)
     assert recuperado is not None
     assert recuperado.assets["1002:Buy"].units == 11.417114
+    assert recuperado.assets["1002:Buy"].positions[1002].units == 11.417114
     assert recuperado.assets["6:Sell"].is_short is True
     assert recuperado.baseline_sent is True
+    assert recuperado.needs_positions_baseline is False
+    assert releido.version == STATE_VERSION
+
+
+def test_un_estado_antiguo_no_se_compara_hasta_tener_posiciones(tmp_path):
+    """El estado anterior al 3 guardaba unidades totales, sin posiciones.
+
+    Comparar contra él daría avisos equivocados (una venta parcial parecería
+    una venta total), así que se marca para volver a tomar la foto sin avisar.
+    """
+    ruta = tmp_path / "state.json"
+    ruta.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "instruments": {},
+                "users": {
+                    EJEMPLO_MIN: {
+                        "username": EJEMPLO,
+                        "slug": EJEMPLO_MIN,
+                        "gcid": 1111111,
+                        "real_cid": 2222222,
+                        "baseline_sent": True,
+                        "assets": {
+                            "1002:Buy": {
+                                "instrument_id": 1002,
+                                "direction": "Buy",
+                                "units": 11.417114,
+                                "invested_pct": 11.41,
+                            }
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    heredado = State.load(ruta).user(EJEMPLO_MIN)
+    assert heredado is not None
+    assert heredado.baseline_sent is True
+    assert heredado.needs_positions_baseline is True
+    # Las unidades del estado viejo no se pierden: quedan con un identificador
+    # 0 (que eToro no usa) para que se vean al revisar el fichero.
+    assert heredado.assets["1002:Buy"].units == 11.417114
+    assert heredado.assets["1002:Buy"].positions[0].units == 11.417114
 
 
 def test_no_hay_campos_que_crezcan_sin_limite(tmp_path):
@@ -104,12 +157,17 @@ def test_no_hay_campos_que_crezcan_sin_limite(tmp_path):
         "allow_display_full_name",
         "avatar_url",
         "baseline_sent",
+        "needs_positions_baseline",
         "assets",
     }, f"el estado ha ganado campos: {campos}"
 
 
-def test_el_estado_no_guarda_datos_de_posiciones(tmp_path):
-    """Solo unidades, lado y peso: nada de IDs, precios ni fechas."""
+def test_el_estado_solo_guarda_unidades_de_cada_posicion(tmp_path):
+    """De cada posición solo el identificador y las unidades.
+
+    Es lo mínimo para saber si una compra abre una posición nueva o amplía una
+    que ya existía. Nada de precios de entrada, fechas ni ganancias.
+    """
     ruta = tmp_path / "state.json"
     state = State(path=ruta)
     user_state = state.upsert_user(usuario(EJEMPLO))
@@ -118,9 +176,16 @@ def test_el_estado_no_guarda_datos_de_posiciones(tmp_path):
 
     datos = json.loads(ruta.read_text(encoding="utf-8"))
     activo = datos["users"][EJEMPLO_MIN]["assets"]["1002:Buy"]
-    assert set(activo) == {"instrument_id", "direction", "units", "invested_pct"}
+    assert set(activo) == {
+        "instrument_id",
+        "direction",
+        "units",
+        "invested_pct",
+        "positions",
+    }
+    assert activo["positions"] == [{"position_id": 1002, "units": 1.5}]
     texto = ruta.read_text(encoding="utf-8").lower()
-    for prohibido in ("positionid", "openrate", "opendatetime", "netprofit", "amount"):
+    for prohibido in ("openrate", "opendatetime", "netprofit", "currentrate"):
         assert prohibido not in texto
 
 

@@ -16,20 +16,32 @@ from typing import Iterable, Mapping, Optional, Sequence
 
 from .models import KIND_ORDER, Change, EtoroUser, Snapshot
 
-# (emoji, verbo en largo, verbo en corto). Los verbos cortos van en negrita
-# igual que los largos, y llevan "CORTO" explícito.
-ACTIONS: dict[str, tuple[str, str, str]] = {
-    "opened": ("🟢", "COMPRA", "ABRE CORTO"),
-    "increased": ("🟢", "AMPLÍA", "AMPLÍA CORTO"),
-    "reduced": ("🔻", "REDUCE", "REDUCE CORTO"),
-    "closed": ("🔴", "VENTA", "CIERRA CORTO"),
+# (emoji, verbo en largo, verbo en corto, verbo en largo parcial, verbo en
+# corto parcial). Los verbos cortos van en negrita igual que los largos, y
+# llevan "CORTO" explícito.
+#
+# Los verbos son los mismos que verías en el histórico de eToro: se compra o se
+# vende, y la operación es total (abre o cierra la posición) o parcial. Por eso
+# NO hay verbos del tipo "amplía" o "reduce": el aviso dice directamente si ha
+# comprado o vendido.
+ACTIONS: dict[str, tuple[str, str, str, str, str]] = {
+    "opened": ("🟢", "COMPRA", "ABRE CORTO", "COMPRA PARCIAL", "COMPRA PARCIAL CORTO"),
+    "increased": ("🟢", "COMPRA", "ABRE CORTO", "COMPRA PARCIAL", "COMPRA PARCIAL CORTO"),
+    "reduced": ("🔻", "VENTA", "CIERRA CORTO", "VENTA PARCIAL", "VENTA PARCIAL CORTO"),
+    "closed": ("🔴", "VENTA", "CIERRA CORTO", "VENTA PARCIAL", "VENTA PARCIAL CORTO"),
 }
 
 
-def action_of(kind: str, is_short: bool) -> tuple[str, str]:
+def action_of(
+    kind: str, is_short: bool, *, partial: bool = False
+) -> tuple[str, str]:
     """Devuelve (emoji, verbo) para un tipo de operación."""
-    emoji, largo, corto = ACTIONS.get(kind, ("❓", kind.upper(), kind.upper()))
-    return emoji, (corto if is_short else largo)
+    emoji, largo, corto, largo_parcial, corto_parcial = ACTIONS.get(
+        kind, ("❓", kind.upper(), kind.upper(), kind.upper(), kind.upper())
+    )
+    if is_short:
+        return emoji, (corto_parcial if partial else corto)
+    return emoji, (largo_parcial if partial else largo)
 
 
 # ---------------------------------------------------------------------- #
@@ -92,28 +104,59 @@ def _weight_line(change: Change) -> str:
 # Bloque por activo
 # ---------------------------------------------------------------------- #
 def render_operation(
-    change: Change,
+    changes: Sequence[Change],
     *,
     instrument_label: str,
 ) -> str:
-    """Un bloque por operación detectada en un activo."""
-    emoji, verbo = action_of(change.kind, change.is_short)
+    """Un bloque por activo, con todas las operaciones que ha tenido.
+
+    Se agrupan a propósito: si de un activo se cierra una posición y se abre
+    otra, dos bloques seguidos con el mismo nombre se leen fatal. Uno solo, con
+    las dos operaciones, se entiende de un vistazo.
+    """
+    ordenadas = _sorted_changes(changes)
+    principal = ordenadas[0]
+    emoji, verbo = action_of(
+        principal.kind, principal.is_short, partial=principal.is_partial
+    )
+    extra = [_short_action(c) for c in ordenadas[1:]]
+
+    titulo = f"{emoji} <b>{verbo}</b>"
+    if extra:
+        titulo += " + " + " + ".join(f"<b>{escape(e)}</b>" for e in extra)
+    titulo += f" · {escape(instrument_label)}"
 
     notas: list[str] = []
-    if change.instrument_was_new and change.kind in ("opened", "increased"):
+    if any(c.instrument_was_new for c in ordenadas):
         notas.append("nueva en cartera")
-    if change.instrument_now_empty and change.kind == "closed":
+    if any(c.instrument_now_empty for c in ordenadas):
         notas.append("cierra todo el activo")
-
-    titulo = f"{emoji} <b>{verbo}</b> · {escape(instrument_label)}"
     if notas:
         titulo += f"  <i>({' / '.join(notas)})</i>"
 
     lineas = [titulo]
-    peso = _weight_line(change)
+    peso = _weight_line(principal)
     if peso:
         lineas.append(f"   {peso}")
     return "\n".join(lineas)
+
+
+def _sorted_changes(changes: Sequence[Change]) -> list[Change]:
+    return sorted(
+        changes,
+        key=lambda c: (
+            KIND_ORDER.get(c.kind, 9),
+            c.instrument_id,
+            c.direction,
+            c.position_id or 0,
+        ),
+    )
+
+
+def _short_action(change: Change) -> str:
+    """Solo el verbo, sin emoji, para acompañar a la operación principal."""
+    return action_of(change.kind, change.is_short, partial=change.is_partial)[1]
+
 
 
 # ---------------------------------------------------------------------- #
@@ -126,35 +169,37 @@ def render_user_changes(
     instrument_labels: Mapping[int, str],
     timestamp: Optional[str] = None,
 ) -> str:
-    ordenadas = sorted(
-        changes,
-        key=lambda c: (
-            KIND_ORDER.get(c.kind, 9),
-            c.instrument_id,
-            c.direction,
-        ),
-    )
+    ordenadas = _sorted_changes(changes)
 
     bloques = [
         render_operation(
-            change,
+            grupo,
             instrument_label=instrument_labels.get(
-                change.instrument_id, f"Instrumento {change.instrument_id}"
+                grupo[0].instrument_id, f"Instrumento {grupo[0].instrument_id}"
             ),
         )
-        for change in ordenadas
+        for grupo in _grouped_by_asset(ordenadas)
     ]
 
     activos = len({c.instrument_id for c in changes})
     cabecera = [
         f"🔔 <b>{escape(user.display_name)}</b> ha movido su cartera",
         f"<i>{timestamp or now_utc()} · "
-        f"{_plural(len(changes), 'operación', 'operaciones')} en "
+        f"{_plural(len(ordenadas), 'operación', 'operaciones')} en "
         f"{_plural(activos, 'activo', 'activos')}</i>",
         "",
     ]
     pie = ["", f'🔗 <a href="{escape(user.portfolio_url)}">Ver cartera pública</a>']
     return "\n".join(cabecera + bloques + pie)
+
+
+def _grouped_by_asset(changes: Sequence[Change]) -> list[list[Change]]:
+    """Agrupa las operaciones del mismo activo, conservando el orden."""
+    grupos: dict[str, list[Change]] = {}
+    for change in changes:
+        grupos.setdefault(change.asset.key, []).append(change)
+    return list(grupos.values())
+
 
 
 def render_baseline(
@@ -184,8 +229,8 @@ def render_baseline(
         lineas.append(f"  · {etiqueta}: {format_weight(peso)}")
     lineas += [
         "",
-        "<i>A partir de ahora recibirás un aviso cada vez que compre,</i>",
-        "<i>venda, amplíe o reduzca alguna posición.</i>",
+        "<i>A partir de ahora recibirás un aviso cada vez que compre</i>",
+        "<i>o venda algo de este activo, total o parcialmente.</i>",
         f'🔗 <a href="{escape(user.portfolio_url)}">Ver cartera pública</a>',
     ]
     return "\n".join(lineas)

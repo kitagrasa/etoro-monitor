@@ -15,7 +15,7 @@ from .client import (
 )
 from .cooldown import CooldownStore, error_key
 from .diff import diff_snapshots
-from .models import Asset, Change, EtoroUser, Instrument, Snapshot
+from .models import Asset, Change, EtoroUser, Instrument, Position, Snapshot
 from .render import render_baseline, render_problem, render_user_changes
 from .state import RuntimeState, State
 
@@ -133,9 +133,20 @@ class Monitor:
 
         previous_state = self.state.user(user.slug)
         is_baseline = previous_state is None or not previous_state.baseline_sent
+        # Estado antiguo (sin posiciones): no se puede comparar con precisión,
+        # así que esta pasada solo sirve para volver a tomar la foto. Comparar
+        # unidades a secas daría avisos equivocados (una venta parcial se
+        # anunciaría como venta total).
+        aprendiendo_posiciones = (
+            previous_state is not None and previous_state.needs_positions_baseline
+        )
 
         changes: list[Change] = []
-        if previous_state is not None and previous_state.assets:
+        if (
+            previous_state is not None
+            and previous_state.assets
+            and not aprendiendo_posiciones
+        ):
             previous = Snapshot(user=previous_state.user, assets=dict(previous_state.assets))
             changes = diff_snapshots(previous, snapshot)
 
@@ -143,6 +154,7 @@ class Monitor:
         # que ya no está en la cartera desaparece del fichero.
         new_state = self.state.upsert_user(user)
         new_state.assets = dict(snapshot.assets)
+        new_state.needs_positions_baseline = False
 
         labels = {
             iid: self.state.instrument_label(iid) for iid in snapshot.instrument_ids
@@ -153,6 +165,12 @@ class Monitor:
                 self.notify(render_baseline(user, snapshot, instrument_labels=labels))
             new_state.baseline_sent = True
             log.info("%s: línea base establecida", user.username)
+        elif aprendiendo_posiciones:
+            log.info(
+                "%s: estado antiguo sin posiciones; se toma la foto nueva sin "
+                "avisar (la próxima pasada ya compara posición a posición)",
+                user.username,
+            )
         elif changes:
             self.notify(
                 render_user_changes(user, changes, instrument_labels=labels)
@@ -188,7 +206,7 @@ class Monitor:
         )
 
     def fetch_snapshot(self, user: EtoroUser) -> Snapshot:
-        """Lee la cartera y resume cada activo en (unidades, lado, peso)."""
+        """Lee la cartera y resume cada activo en (posiciones, lado, peso)."""
         cid = user.real_cid
         portfolio = self.client.get_portfolio(cid)
         rows = portfolio.get("AggregatedPositions") or []
@@ -205,22 +223,30 @@ class Monitor:
             invested_pct = float(row.get("Invested") or 0.0)
             key = f"{instrument_id}:{direction}"
 
-            units = self._units_of(cid, instrument_id, direction)
+            posiciones = self._positions_of(cid, instrument_id, direction)
 
             anteriores = assets.get(key)
             if anteriores is None:
                 assets[key] = Asset(
                     instrument_id=instrument_id,
                     direction=direction,
-                    units=units,
+                    positions=posiciones,
                     invested_pct=invested_pct,
                 )
             else:
-                # Caso raro: dos filas del mismo activo y lado. Se suman.
+                # Caso raro: dos filas del mismo activo y lado. Se juntan.
+                juntas = dict(anteriores.positions)
+                for position_id, position in posiciones.items():
+                    previa = juntas.get(position_id)
+                    juntas[position_id] = (
+                        position
+                        if previa is None
+                        else Position(previa.position_id, previa.units + position.units)
+                    )
                 assets[key] = Asset(
                     instrument_id=instrument_id,
                     direction=direction,
-                    units=anteriores.units + units,
+                    positions=juntas,
                     invested_pct=anteriores.invested_pct + invested_pct,
                 )
 
@@ -228,24 +254,38 @@ class Monitor:
 
         return Snapshot(user=user, assets=assets)
 
-    def _units_of(self, cid: int, instrument_id: int, direction: str) -> float:
-        """Suma las unidades de las posiciones abiertas de ese lado.
+    def _positions_of(
+        self, cid: int, instrument_id: int, direction: str
+    ) -> dict[int, Position]:
+        """Las posiciones abiertas de ese lado, con su identificador.
 
         eToro publica `Amount` en positivo también en los cortos, así que la
         distinción largo/corto se hace por `IsBuy`. Si un activo tuviera a la
         vez posiciones largas y cortas, cada lado se cuenta por separado.
+
+        Se guarda una entrada por `PositionID` porque es lo que permite saber
+        si una compra ha abierto una posición nueva o si ha ampliado una que ya
+        existía. Si el mismo identificador apareciera dos veces (no debería),
+        las unidades se suman en vez de pisarse.
         """
         payload = self.client.get_positions(cid, instrument_id)
         quiere_buy = direction.strip().lower() != "sell"
-        total = 0.0
+        posiciones: dict[int, Position] = {}
         for raw in payload.get("PublicPositions") or []:
             try:
                 if bool(raw.get("IsBuy", True)) != quiere_buy:
                     continue
-                total += float(raw.get("Amount") or 0.0)
-            except (TypeError, ValueError):
+                position_id = int(raw["PositionID"])
+                units = float(raw.get("Amount") or 0.0)
+            except (KeyError, TypeError, ValueError):
                 log.warning("Posición ilegible en %s: %s", instrument_id, raw)
-        return total
+                continue
+            previa = posiciones.get(position_id)
+            posiciones[position_id] = Position(
+                position_id=position_id,
+                units=units if previa is None else previa.units + units,
+            )
+        return posiciones
 
     def _ensure_instrument(self, instrument_id: int) -> None:
         """Descarga el nombre del activo la primera vez que lo vemos."""

@@ -13,6 +13,7 @@ no se ejecuta y nadie se entera). Estos tests lo pillan antes de subir nada:
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -59,21 +60,60 @@ def test_el_yaml_se_puede_leer(ruta):
 
 
 @pytest.mark.parametrize("ruta", WORKFLOWS, ids=lambda p: p.name)
-def test_cada_paso_es_shell_valido(ruta):
+def test_cada_paso_es_shell_valido(ruta, tmp_path):
     if shutil.which("bash") is None:  # pragma: no cover
         pytest.skip("bash no disponible")
     for indice, paso in enumerate(pasos(cargar(ruta))):
         if "run" not in paso:
             continue
-        archivo = Path("/tmp/_paso_del_workflow.sh")
-        archivo.write_text(paso["run"], encoding="utf-8")
+        # El fichero se escribe DENTRO del proyecto (no en /tmp): en Windows
+        # /tmp no existe y el test fallaba por el sitio donde se guardaba el
+        # guion, no por el guion. Ver `_ruta_para_bash`.
+        # Los saltos van en LF a propósito: con CRLF, bash se atraganta con
+        # las funciones y los heredoc del workflow.
+        archivo = tmp_path / "_paso_del_workflow.sh"
+        archivo.write_text(paso["run"], encoding="utf-8", newline="\n")
         resultado = subprocess.run(
-            ["bash", "-n", str(archivo)], capture_output=True, text=True
+            ["bash", "-n", _ruta_para_bash(archivo)], capture_output=True, text=True
         )
         assert resultado.returncode == 0, (
             f"{ruta.name}, paso «{paso.get('name', indice)}»: "
             f"el shell no es válido:\n{resultado.stderr}"
         )
+
+
+def _ruta_para_bash(archivo: Path) -> str:
+    """Traduce una ruta de Windows a la que entiende el bash que haya.
+
+    En Linux y macOS la ruta vale tal cual. En Windows, el `bash` que suele
+    estar disponible es el de WSL (`C:\\Windows\\System32\\bash.exe`, que es un
+    lanzador de unos 200 KB) o el de Git. Ninguno entiende `D:\\...`: hay que
+    pasarla como `/mnt/d/...` (WSL) o `D:/...` (Git Bash).
+    """
+    texto = str(archivo)
+    if os.name != "nt":
+        return texto
+    unix = texto.replace("\\", "/")
+    if _es_lanzador_de_wsl():
+        return "/mnt/" + unix[0].lower() + unix[2:]
+    return unix
+
+
+def _es_lanzador_de_wsl() -> bool:
+    """¿El `bash` del PATH es el lanzador de WSL?
+
+    No sirve mirar dentro del propio Windows (por ejemplo `/proc/version`):
+    eso existe dentro de Linux, no aquí. El lanzador de WSL se distingue por
+    ser un ejecutable grande (unos 86 KB, frente a los ~50 KB del `bash.exe`
+    de Git).
+    """
+    ruta = shutil.which("bash")
+    if not ruta:
+        return False
+    try:
+        return Path(ruta).stat().st_size > 70_000
+    except OSError:  # pragma: no cover
+        return False
 
 
 @pytest.mark.parametrize("ruta", WORKFLOWS, ids=lambda p: p.name)

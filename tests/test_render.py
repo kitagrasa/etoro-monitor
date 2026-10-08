@@ -1,4 +1,4 @@
-"""Tests de los mensajes: cortos en negrita, sin unidades ni precios."""
+"""Tests de los mensajes: compra/venta total o parcial, sin unidades ni precios."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from etoro_monitor.diff import diff_snapshots  # noqa: E402
-from etoro_monitor.models import Asset, EtoroUser, Snapshot  # noqa: E402
+from etoro_monitor.models import Asset, EtoroUser, Position, Snapshot  # noqa: E402
 from etoro_monitor.render import (  # noqa: E402
     format_number,
     format_weight,
@@ -29,16 +29,28 @@ USER = EtoroUser(
 LABELS = {1002: "Alphabet (GOOG)", 6: "EUR/USD"}
 
 
-def asset(instrument_id, units, *, direction="Buy", pct=1.0):
-    return Asset(instrument_id, direction, units, pct)
+def asset(instrument_id, units, *, direction="Buy", pct=1.0, position_id=None, extra=None):
+    principal = position_id if position_id is not None else instrument_id
+    positions = {principal: Position(principal, units)}
+    for otro_id, otras_unidades in (extra or {}).items():
+        positions[otro_id] = Position(otro_id, otras_unidades)
+    return Asset(
+        instrument_id=instrument_id,
+        direction=direction,
+        positions=positions,
+        invested_pct=pct,
+    )
 
 
 def snap(*assets):
     return Snapshot(user=USER, assets={a.key: a for a in assets})
 
 
-def solo(change):
-    return render_operation(change, instrument_label=LABELS[change.instrument_id])
+def solo(changes):
+    """El bloque del activo, tal como lo vería el usuario."""
+    return render_operation(
+        changes, instrument_label=LABELS[changes[0].instrument_id]
+    )
 
 
 # ---------------------------------------------------------------------- #
@@ -55,35 +67,52 @@ def test_formato_espanol():
 # ---------------------------------------------------------------------- #
 def test_compra():
     changes = diff_snapshots(snap(), snap(asset(1002, 0.6, pct=18.29)))
-    texto = solo(changes[0])
+    texto = solo(changes)
     assert "<b>COMPRA</b>" in texto
     assert "Alphabet (GOOG)" in texto
     assert "nueva en cartera" in texto
     assert "peso en cartera: 18,29%" in texto
 
 
-def test_ampliacion_muestra_el_peso_antes_y_despues():
+def test_compra_parcial_al_anadir_a_una_posicion():
     changes = diff_snapshots(
         snap(asset(1002, 1.0, pct=17.90)), snap(asset(1002, 1.6, pct=18.29))
     )
-    texto = solo(changes[0])
-    assert "<b>AMPLÍA</b>" in texto
+    texto = solo(changes)
+    assert "<b>COMPRA PARCIAL</b>" in texto
+    assert "AMPLÍA" not in texto
     assert "17,90% → 18,29%" in texto
 
 
-def test_reduccion():
+def test_compra_parcial_al_abrir_una_segunda_posicion():
+    """El caso que no se veía mirando solo las unidades totales.
+
+    Ya tenía Alphabet: la operación nueva se ve como compra (no "nueva en
+    cartera") y el peso pasa del 10% al 16%.
+    """
+    before = snap(asset(1002, 1.0, pct=10.0))
+    after = snap(asset(1002, 1.0, pct=16.0, extra={9999: 0.6}))
+    texto = solo(diff_snapshots(before, after))
+    assert "<b>COMPRA PARCIAL</b>" in texto
+    assert "nueva en cartera" not in texto
+    assert "peso en cartera: 16,00%" in texto
+
+
+def test_venta_parcial():
     changes = diff_snapshots(
         snap(asset(1002, 1.0, pct=20.0)), snap(asset(1002, 0.4, pct=9.0))
     )
-    texto = solo(changes[0])
-    assert "<b>REDUCE</b>" in texto
+    texto = solo(changes)
+    assert "<b>VENTA PARCIAL</b>" in texto
+    assert "REDUCE" not in texto
     assert "20,00% → 9,00%" in texto
 
 
 def test_venta_total():
     changes = diff_snapshots(snap(asset(1002, 1.0, pct=1.61)), snap())
-    texto = solo(changes[0])
+    texto = solo(changes)
     assert "<b>VENTA</b>" in texto
+    assert "VENTA PARCIAL" not in texto
     assert "cierra todo el activo" in texto
     assert "peso antes: 1,61%" in texto
 
@@ -93,7 +122,7 @@ def test_venta_total():
 # ---------------------------------------------------------------------- #
 def test_abrir_corto_en_negrita():
     changes = diff_snapshots(snap(), snap(asset(6, 0.35, direction="Sell")))
-    texto = solo(changes[0])
+    texto = solo(changes)
     assert "<b>ABRE CORTO</b>" in texto
     assert "CORTO" in texto
 
@@ -102,19 +131,31 @@ def test_ampliar_corto_en_negrita():
     changes = diff_snapshots(
         snap(asset(6, 0.3, direction="Sell")), snap(asset(6, 0.9, direction="Sell"))
     )
-    assert "<b>AMPLÍA CORTO</b>" in solo(changes[0])
+    assert "<b>COMPRA PARCIAL CORTO</b>" in solo(changes)
 
 
 def test_reducir_corto_en_negrita():
     changes = diff_snapshots(
         snap(asset(6, 0.9, direction="Sell")), snap(asset(6, 0.3, direction="Sell"))
     )
-    assert "<b>REDUCE CORTO</b>" in solo(changes[0])
+    assert "<b>VENTA PARCIAL CORTO</b>" in solo(changes)
 
 
 def test_cerrar_corto_en_negrita():
     changes = diff_snapshots(snap(asset(6, 0.5, direction="Sell")), snap())
-    assert "<b>CIERRA CORTO</b>" in solo(changes[0])
+    assert "<b>CIERRA CORTO</b>" in solo(changes)
+
+
+# ---------------------------------------------------------------------- #
+# Dos operaciones del mismo activo en una sola pasada
+# ---------------------------------------------------------------------- #
+def test_dos_operaciones_del_mismo_activo_van_en_un_solo_bloque():
+    """Vender y comprar el mismo activo a la vez: un bloque, no dos."""
+    before = snap(asset(1002, 1.0, position_id=1002))
+    after = snap(asset(1002, 0.8, position_id=9999, extra={1002: 0.5}))
+    texto = solo(diff_snapshots(before, after))
+    assert texto.count("Alphabet (GOOG)") == 1
+    assert "<b>COMPRA PARCIAL</b> + <b>VENTA PARCIAL</b>" in texto
 
 
 # ---------------------------------------------------------------------- #
@@ -123,7 +164,7 @@ def test_cerrar_corto_en_negrita():
 def test_el_bloque_de_operacion_no_lleva_unidades_ni_precios_ni_fechas():
     """La cabecera lleva la fecha del aviso (correcto); la operación, ninguna."""
     changes = diff_snapshots(snap(), snap(asset(1002, 0.648492, pct=18.29)))
-    bloque = solo(changes[0])
+    bloque = solo(changes)
     assert "uds" not in bloque
     assert "USD" not in bloque
     assert "0,648492" not in bloque

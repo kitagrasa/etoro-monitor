@@ -3,7 +3,7 @@ name: Monitor eToro -> Telegram
 # ---------------------------------------------------------------------------
 # Revisa las carteras públicas de los usuarios de watchlist.md (una persona por
 # línea, en el repositorio de estado privado) y manda un mensaje a Telegram
-# cuando alguno compra, vende, amplía o reduce una posición.
+# cuando alguno compra o vende, total o parcialmente.
 #
 # NO se ejecuta por sí solo: lo dispara cron-job.org (ver README).
 #
@@ -210,7 +210,7 @@ jobs:
 
           if [ -d .state-repo ]; then
             # Primera vez: el repositorio está vacío y hay que crear los ficheros.
-            [ -f .state-repo/state.json ]    || printf '{\n  "version": 2,\n  "instruments": {},\n  "users": {}\n}\n'    > .state-repo/state.json
+            [ -f .state-repo/state.json ]    || printf '{\n  "version": 3,\n  "instruments": {},\n  "users": {}\n}\n'    > .state-repo/state.json
             [ -f .state-repo/cooldown.json ] || printf '{\n  "version": 1,\n  "sent": {}\n}\n' > .state-repo/cooldown.json
 
             echo "state_path=.state-repo/state.json" >> "$GITHUB_OUTPUT"

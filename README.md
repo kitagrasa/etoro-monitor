@@ -1,7 +1,7 @@
 # etoro-monitor
 
 Avisos automáticos por **Telegram** cuando los usuarios de eToro que tú elijas
-**compran, venden, amplían o reducen** posiciones.
+**compran o venden** posiciones, total o parcialmente.
 
 * **Sin KYC, sin login, sin API key, sin cuenta en eToro.** Solo se leen los
   endpoints *públicos* que carga la propia web
@@ -29,15 +29,18 @@ Avisos automáticos por **Telegram** cuando los usuarios de eToro que tú elijas
 
 ### Por qué es fiable (y por qué no da falsos avisos)
 
-Cada activo se resume en **un solo número que solo cambia cuando el usuario
-opera**: el **total de unidades**.
+De cada activo se recuerda **una entrada por operación abierta**, con el
+identificador que eToro le da (`PositionID`) y sus unidades. Comparar posición a
+posición (y no solo el total) es lo que permite saber **qué** ha pasado:
 
 | Lo que ve el monitor | Qué ha pasado |
 |---|---|
 | Aparece un activo que no tenía | **COMPRA** (o **ABRE CORTO**) |
-| Desaparece un activo | **VENTA** (o **CIERRA CORTO**) |
-| Tiene más unidades | **AMPLÍA** |
-| Tiene menos unidades | **REDUCE** |
+| Aparece una posición nueva de un activo que ya tenía | **COMPRA** |
+| Suben las unidades de una posición abierta | **COMPRA PARCIAL** |
+| Bajan las unidades de una posición abierta | **VENTA PARCIAL** |
+| Desaparece una posición, pero le quedan otras | **VENTA PARCIAL** (o **VENTA PARCIAL CORTO**) |
+| Desaparece el activo entero | **VENTA** (o **CIERRA CORTO**) |
 
 Las unidades **no cambian** porque el precio suba o baje, ni porque se mueva el
 resto de la cartera. Por eso el mercado no puede generar un aviso falso.
@@ -49,12 +52,30 @@ Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
 
 ```
 🔔 Usuario Ejemplo ha movido su cartera
-02/10/2026 16:03 UTC · 2 operaciones en 2 activos
+02/10/2026 16:03 UTC · 4 operaciones en 3 activos
 
-🟢 COMPRA · Alphabet (GOOG)  (nueva en cartera)
-   peso en cartera: 5,40%
+🟢 COMPRA · Apple (AAPL)  (nueva en cartera)
+   peso en cartera: 1,20%
+🟢 COMPRA PARCIAL · Alphabet (GOOG)
+   peso en cartera: 9,00%
+🔻 VENTA PARCIAL · Tesla (TSLA)
+   peso en cartera: 4,20% → 2,10%
 🔴 CIERRA CORTO · EUR/USD
    peso antes: 0,71%
+```
+
+La diferencia entre **COMPRA** y **COMPRA PARCIAL** la marca eToro: da un
+identificador distinto a cada orden. Si aparece un identificador que antes no
+estaba, es una compra; si lo que sube son las unidades de una operación que ya
+existía, es una compra parcial. Por eso "ya tenía Alphabet y ha comprado más"
+sale como compra parcial aunque antes ya tuviera el activo.
+
+Si de un mismo activo se venden unas cosas y se compran otras en la misma
+pasada, las dos operaciones van en el mismo bloque, para no repetir el nombre
+del activo dos veces:
+
+```
+🟢 COMPRA PARCIAL + 🔻 VENTA PARCIAL · Alphabet (GOOG)
 ```
 
 ---
@@ -218,6 +239,11 @@ Detalles que conviene saber:
 
 * Una persona nueva entra **con su línea base**, así que no recibirás avisos de
   todo lo que hizo antes de que la añadieras.
+* **Si vienes de una versión anterior** (la que solo guardaba unidades), la
+  primera pasada después de actualizar **no avisa de nada**: vuelve a tomar la
+  foto con las posiciones y a partir de la siguiente compara posición a
+  posición. Es a propósito: con el estado viejo no se puede saber si una venta
+  fue parcial o total, y avisar mal es peor que no avisar una vez.
 * **Comentar (`#`) a alguien es dejar de seguirle**: su foto se borra del estado
   en la siguiente pasada y, si lo vuelves a activar más tarde, empieza de cero
   otra vez (con línea base nueva).
@@ -319,7 +345,7 @@ python -m etoro_monitor show usuario_ejemplo    # cartera actual por pesos
 python -m etoro_monitor resolve usuario_ejemplo # nombre -> CID
 python -m etoro_monitor ping                    # ¿responden los endpoints?
 python -m etoro_monitor notify-test             # mensaje de prueba
-python -m pytest tests -q                       # 177 tests, sin red
+python -m pytest tests -q                       # 187 tests, sin red
 ```
 
 ---
@@ -460,12 +486,26 @@ Con eso, el repositorio público solo contiene código y documentación.
 
 ```json
 "1002:Buy": { "direction": "Buy", "instrument_id": 1002,
-              "units": 11.417114, "invested_pct": 11.41 }
+              "units": 11.417114, "invested_pct": 11.41,
+              "positions": [ { "position_id": 701039100, "units": 8.0 },
+                             { "position_id": 701039999, "units": 3.417114 } ] }
 ```
 
-**No se guarda**: identificadores de posición, unidades por posición, fechas de
-apertura, precios de entrada, ganancias ni valor de la cartera. Antes el fichero
-ocupaba **61,7 KB**; ahora **~10 KB**.
+El `PositionID` y las unidades de cada posición son **lo mínimo para saber si
+una compra abre una posición nueva o amplía una que ya existía**. El total
+(`units`) se guarda también, pero es la suma de las posiciones.
+
+**No se guarda**: fechas de apertura, precios de entrada, ganancias, valor de
+la cartera ni el apalancamiento. Con una cartera real de 66 activos y 228
+operaciones vivas, el estado ocupa unos **43 KB** (antes, sin las posiciones y
+con identificadores largos de posición, ocupaba **61,7 KB**; la primera
+versión que dejó de guardarlos bajó a ~18 KB).
+
+> **Nota honesta sobre el tamaño:** guardar el identificador de cada operación
+> es lo que permite distinguir "ha comprado algo nuevo" de "ha metido más
+> dinero en lo que ya tenía". En carteras con muchas operaciones vivas (es
+> habitual: 49 de los 66 activos del ejemplo tienen más de una) eso ocupa más
+> que guardar solo el total. Es el precio de no perderse ninguna compra.
 
 ### Nada crece sin control
 
@@ -543,7 +583,7 @@ etoro-monitor/
 │   └── cooldown.json            # plantilla: marcas de avisos
 │                                # (con la opción 2.6, los de verdad viven en
 │                                #  el repositorio privado)
-├── tests/                       # 177 tests, sin red
+├── tests/                       # 187 tests, sin red
 │   ├── test_privacidad.py       #   vigila que no se cuelen datos personales
 │   └── test_workflow.py         #   valida el YAML y el shell de los workflows
 ├── watchlist.md                 # cartel: AQUÍ NO VA LA LISTA (es pública)
@@ -584,8 +624,9 @@ el precio de distinguir una operación de un movimiento del mercado.
   toca el estado y se avisa.
 * **Operaciones muy seguidas.** Dos operaciones entre dos ejecuciones se ven
   como una sola: se compara el resultado, no el histórico.
-* **Una compra y una venta exactamente iguales** entre dos ejecuciones dejarían
-  las unidades iguales y no se detectarían. Es un caso extremo y asumible.
+* **Un cambio de lado** (cerrar el largo y abrir el corto del mismo activo) se
+  anuncia como una **VENTA** y una **COMPRA**, que es lo que ha pasado de
+  verdad, aunque las unidades totales bajen.
 * **Repos inactivos.** GitHub desactiva los workflows programados tras 60 días
   sin actividad; al usar cron-job.org esto no te afecta.
 

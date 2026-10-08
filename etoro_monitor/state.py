@@ -1,9 +1,10 @@
 """Estado persistente entre ejecuciones.
 
 `state/state.json` guarda **solo lo imprescindible** para detectar operaciones:
-por cada activo, sus unidades totales, su dirección (largo/corto) y su peso como
-contexto. No guarda identificadores de posición, ni fechas, ni precios, ni
-ganancias.
+por cada activo, sus posiciones abiertas (identificador y unidades), su
+dirección (largo/corto) y su peso como contexto. El identificador de cada
+posición es lo que permite distinguir una compra nueva de una compra parcial.
+No guarda fechas, ni precios, ni ganancias.
 
 Hay tres ficheros, con papeles distintos:
 
@@ -26,7 +27,7 @@ from typing import Any, Iterable, Optional
 
 from .models import Asset, EtoroUser, Instrument
 
-STATE_VERSION = 2
+STATE_VERSION = 3
 COOLDOWN_FILE = "cooldown.json"
 
 log = logging.getLogger(__name__)
@@ -57,6 +58,10 @@ class UserState:
     user: EtoroUser
     assets: dict[str, Asset] = field(default_factory=dict)
     baseline_sent: bool = False
+    # El estado venía del formato antiguo, que guardaba unidades totales sin
+    # decir de qué posiciones venían. No se puede comparar con precisión, así
+    # que la primera pasada solo vuelve a tomar la foto.
+    needs_positions_baseline: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,11 +74,12 @@ class UserState:
             "allow_display_full_name": self.user.allow_display_full_name,
             "avatar_url": self.user.avatar_url,
             "baseline_sent": self.baseline_sent,
+            "needs_positions_baseline": self.needs_positions_baseline,
             "assets": {key: asset.to_dict() for key, asset in sorted(self.assets.items())},
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "UserState":
+    def from_dict(cls, data: dict[str, Any], *, version: int = STATE_VERSION) -> "UserState":
         user = EtoroUser(
             username=data["username"],
             gcid=int(data["gcid"]),
@@ -88,10 +94,15 @@ class UserState:
         assets = {
             str(key): Asset.from_dict(payload) for key, payload in raw_assets.items()
         }
+        # Los estados anteriores al 3 guardaban solo el total de unidades: al
+        # no saber de qué posiciones venía, cualquier comparación daría avisos
+        # equivocados (una venta parcial se anunciaría como venta total).
+        heredado = version < STATE_VERSION or bool(data.get("needs_positions_baseline"))
         return cls(
             user=user,
             assets=assets,
             baseline_sent=bool(data.get("baseline_sent")),
+            needs_positions_baseline=heredado,
         )
 
 
@@ -121,19 +132,20 @@ class State:
                 state_path, ValueError("el contenido no es un objeto JSON")
             )
 
+        version = int(raw.get("version", STATE_VERSION))
         instruments = {
             int(iid): Instrument.from_dict(payload)
             for iid, payload in (raw.get("instruments") or {}).items()
         }
         users = {
-            name: UserState.from_dict(payload)
+            name: UserState.from_dict(payload, version=version)
             for name, payload in (raw.get("users") or {}).items()
         }
         return cls(
             path=state_path,
             instruments=instruments,
             users=users,
-            version=int(raw.get("version", STATE_VERSION)),
+            version=version,
         )
 
     # -------------------------------------------------------------- #
