@@ -97,7 +97,11 @@ class UserState:
         # Los estados anteriores al 3 guardaban solo el total de unidades: al
         # no saber de qué posiciones venía, cualquier comparación daría avisos
         # equivocados (una venta parcial se anunciaría como venta total).
-        heredado = version < STATE_VERSION or bool(data.get("needs_positions_baseline"))
+        #
+        # Lo decide la VERSIÓN, no el campo guardado: si el fichero está en la
+        # versión actual, sus datos ya son buenos aunque el campo diga True
+        # (pasa justo al guardar un estado migrado, antes de procesarlo).
+        heredado = version < STATE_VERSION
         return cls(
             user=user,
             assets=assets,
@@ -212,7 +216,19 @@ class State:
         }
 
     def save(self) -> bool:
-        """Guarda el estado. Devuelve True si el contenido ha cambiado."""
+        """Guarda el estado. Devuelve True si el contenido ha cambiado.
+
+        IMPORTANTE: al guardar se migra el fichero a `STATE_VERSION`.
+
+        Antes se escribía `self.version`, que era la versión que traía el
+        fichero leído. Si el estado era de la versión 2, se guardaba otra vez
+        como "version": 2 y TODAS las pasadas siguientes volvían a considerarlo
+        antiguo (`needs_positions_baseline = True`): el monitor se pasaba la
+        vida "aprendiendo" posiciones y **nunca avisaba de ninguna operación**.
+        Con un estado v2 eso es exactamente lo que pasaba, sin ningún error
+        visible: las ejecuciones salían en verde.
+        """
+        self.version = STATE_VERSION
         return _write_if_changed(
             self.path,
             json.dumps(self.to_dict(), indent=2, sort_keys=True, ensure_ascii=False) + "\n",
