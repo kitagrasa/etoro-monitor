@@ -189,6 +189,54 @@ def test_el_estado_solo_guarda_unidades_de_cada_posicion(tmp_path):
         assert prohibido not in texto
 
 
+def test_al_guardar_se_migra_la_version(tmp_path):
+    """Regresión: un estado v2 se guardaba otra vez como v2.
+
+    Consecuencia real (vista en producción): en cada pasada el monitor volvía a
+    creer que el estado era antiguo, se pasaba la vida "aprendiendo" posiciones
+    y NO AVISABA de ninguna operación. Y todo en verde, sin error visible.
+    """
+    ruta = tmp_path / "state.json"
+    ruta.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "instruments": {},
+                "users": {
+                    EJEMPLO_MIN: {
+                        "username": EJEMPLO,
+                        "slug": EJEMPLO_MIN,
+                        "gcid": 1111111,
+                        "real_cid": 2222222,
+                        "baseline_sent": True,
+                        "assets": {
+                            "1002:Buy": {
+                                "instrument_id": 1002,
+                                "direction": "Buy",
+                                "units": 1.0,
+                                "invested_pct": 10.0,
+                            }
+                        },
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    state = State.load(ruta)
+    assert state.version == 2
+    state.save()
+
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    assert datos["version"] == STATE_VERSION, "el fichero se quedó en la versión vieja"
+
+    # Y al volver a leerlo (la pasada siguiente) ya no se considera heredado:
+    # si no, jamás avisaría de ninguna operación.
+    releido = State.load(ruta)
+    assert releido.user(EJEMPLO_MIN).needs_positions_baseline is False
+
+
 def test_guardar_solo_si_cambia(tmp_path):
     state = State(path=tmp_path / "state.json")
     state.upsert_user(usuario(EJEMPLO))
