@@ -55,13 +55,13 @@ Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
 02/10/2026 16:03 UTC · 4 operaciones en 3 activos
 
 🟢 COMPRA · Apple (AAPL)  (nueva en cartera)
-   peso en cartera: 1,20%
+   1,20%
 🟢 COMPRA PARCIAL · Alphabet (GOOG)
-   peso en cartera: 9,00%
+   9,00%
 🔻 VENTA PARCIAL · Tesla (TSLA)
-   peso en cartera: 4,20% → 2,10%
+   4,20% → 2,10%
 🔴 CIERRA CORTO · EUR/USD
-   peso antes: 0,71%
+   0,71%
 ```
 
 La diferencia entre **COMPRA** y **COMPRA PARCIAL** la marca eToro: da un
@@ -77,6 +77,54 @@ del activo dos veces:
 ```
 🟢 COMPRA PARCIAL + 🔻 VENTA PARCIAL · Alphabet (GOOG)
 ```
+
+### Ajustes proporcionales: no son compras ni ventas
+
+eToro a veces reduce **todas** las posiciones en el mismo factor de golpe (una
+retirada de efectivo, un rebalanceo): por ejemplo, un 0,30% en las 143
+posiciones a la vez. Eso no son 143 ventas parciales, es **un solo ajuste**.
+
+El monitor lo detecta así: si una gran parte de las posiciones que cambian lo
+hacen con el **mismo factor** (mediana, con tolerancia) y el factor es una
+bajada, lo trata como ajuste proporcional. Las operaciones que no encajan en ese
+factor (una venta real de otro tamaño, una compra, un cierre) se avisan con
+normalidad.
+
+Para no confundir una venta grande de **un solo activo** con un ajuste, se
+exigen dos cosas más:
+
+* que el ajuste cubra al menos la **mitad de todas las posiciones** abiertas (no
+  solo de las que cambiaron), y
+* que toque **al menos dos activos** distintos (si la cartera solo tiene uno, no
+  hay nada que repartir y se omite esta condición).
+
+Así, vender el 10% de un activo con 20 posiciones **no** es un ajuste: se avisa
+como 20 ventas parciales. Una retirada que reduce el 98% de la cartera, sí.
+
+- Si en la pasada **solo** hay un ajuste, no se manda nada (queda en el log).
+- Si hay un ajuste **y** operaciones reales, el mensaje lleva **solo** las
+  operaciones reales: el ajuste no se menciona (queda en el log).
+
+```
+🔔 Usuario Ejemplo ha movido su cartera
+19/10/2026 13:41 UTC · 10 operaciones en 6 activos
+
+🟢 COMPRA PARCIAL · Micron (MU)
+   7,79%
+🔴 VENTA · Sandisk (SNDK)
+   5,36%
+```
+
+Los mensajes son deliberadamente escuetos: cada verbo sale **una vez** (sin
+`+ COMPRA PARCIAL` repetido ni `×3`), el peso va **sin etiqueta** (solo el
+porcentaje, o `antes → después` si cambió) y no se añaden notas como
+"cierra todo el activo".
+
+Es una heurística (eToro no publica el histórico de operaciones), pero basada en
+un modelo: un solo factor explica casi todos los cambios. Los umbrales que usa
+(`diff.py`) son de consistencia (cuántas posiciones comparten el factor y qué
+parte de la cartera cubren), no de tamaño de la operación.
+
 
 ---
 
@@ -345,7 +393,7 @@ python -m etoro_monitor show usuario_ejemplo    # cartera actual por pesos
 python -m etoro_monitor resolve usuario_ejemplo # nombre -> CID
 python -m etoro_monitor ping                    # ¿responden los endpoints?
 python -m etoro_monitor notify-test             # mensaje de prueba
-python -m pytest tests -q                       # 187 tests, sin red
+python -m pytest tests -q                       # 206 tests, sin red
 ```
 
 ---
@@ -583,7 +631,7 @@ etoro-monitor/
 │   └── cooldown.json            # plantilla: marcas de avisos
 │                                # (con la opción 2.6, los de verdad viven en
 │                                #  el repositorio privado)
-├── tests/                       # 187 tests, sin red
+├── tests/                       # 206 tests, sin red
 │   ├── test_privacidad.py       #   vigila que no se cuelen datos personales
 │   └── test_workflow.py         #   valida el YAML y el shell de los workflows
 ├── watchlist.md                 # cartel: AQUÍ NO VA LA LISTA (es pública)

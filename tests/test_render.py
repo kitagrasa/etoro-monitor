@@ -71,7 +71,7 @@ def test_compra():
     assert "<b>COMPRA</b>" in texto
     assert "Alphabet (GOOG)" in texto
     assert "nueva en cartera" in texto
-    assert "peso en cartera: 18,29%" in texto
+    assert "18,29%" in texto
 
 
 def test_compra_parcial_al_anadir_a_una_posicion():
@@ -95,7 +95,7 @@ def test_compra_parcial_al_abrir_una_segunda_posicion():
     texto = solo(diff_snapshots(before, after))
     assert "<b>COMPRA PARCIAL</b>" in texto
     assert "nueva en cartera" not in texto
-    assert "peso en cartera: 16,00%" in texto
+    assert "10,00% → 16,00%" in texto
 
 
 def test_venta_parcial():
@@ -113,8 +113,8 @@ def test_venta_total():
     texto = solo(changes)
     assert "<b>VENTA</b>" in texto
     assert "VENTA PARCIAL" not in texto
-    assert "cierra todo el activo" in texto
-    assert "peso antes: 1,61%" in texto
+    assert "cierra todo el activo" not in texto
+    assert "1,61%" in texto
 
 
 # ---------------------------------------------------------------------- #
@@ -158,6 +158,37 @@ def test_dos_operaciones_del_mismo_activo_van_en_un_solo_bloque():
     assert "<b>COMPRA PARCIAL</b> + <b>VENTA PARCIAL</b>" in texto
 
 
+def test_varias_ventas_parciales_no_repiten_la_palabra():
+    """Tres ventas parciales del mismo activo: la palabra sale una vez.
+
+    Antes salía "VENTA PARCIAL + VENTA PARCIAL + VENTA PARCIAL", que se lee
+    fatal (es el caso real que reportó el usuario).
+    """
+    before = snap(asset(1002, 1.0, extra={2002: 1.0, 3002: 1.0}))
+    after = snap(asset(1002, 0.5, extra={2002: 0.5, 3002: 0.5}))
+    texto = solo(diff_snapshots(before, after))
+    assert texto.count("VENTA PARCIAL") == 1, texto
+    assert "×" not in texto
+
+
+def test_varias_compras_parciales_no_llevan_cuenta():
+    """Dos posiciones que suben y una nueva: "COMPRA PARCIAL", sin ×3."""
+    before = snap(asset(1002, 1.0, extra={2002: 1.0}))
+    after = snap(asset(1002, 1.5, position_id=1002, extra={2002: 1.5, 3002: 0.3}))
+    texto = solo(diff_snapshots(before, after))
+    assert texto.count("COMPRA PARCIAL") == 1, texto
+    assert "×" not in texto
+
+
+def test_compra_y_varias_ventas_parciales_en_el_mismo_bloque():
+    before = snap(asset(1002, 1.0, extra={2002: 1.0, 3002: 1.0}))
+    after = snap(asset(1002, 1.0, extra={2002: 0.5, 3002: 0.5, 4002: 0.4}))
+    texto = solo(diff_snapshots(before, after))
+    # Una compra (posicion nueva) y dos ventas parciales, cada verbo una vez.
+    assert "<b>COMPRA PARCIAL</b> + <b>VENTA PARCIAL</b>" in texto
+    assert "×" not in texto
+
+
 # ---------------------------------------------------------------------- #
 # Nada de datos de posición
 # ---------------------------------------------------------------------- #
@@ -190,6 +221,24 @@ def test_cabecera_resume_el_total():
     assert "2 operaciones en 2 activos" in texto
     assert "Usuario Ejemplo" in texto
     assert "https://www.etoro.com/people/usuarioejemplo/portfolio" in texto
+
+
+def test_el_mensaje_no_lleva_linea_de_ajuste_ni_peso_con_etiqueta():
+    """El usuario no quiere ni la línea del ajuste ni "peso en cartera:"."""
+    changes = diff_snapshots(
+        snap(asset(1002, 1.0, pct=20.0)), snap(asset(1002, 0.5, pct=9.0))
+    )
+    texto = render_user_changes(USER, changes, instrument_labels=LABELS)
+    assert "20,00% → 9,00%" in texto
+    assert "peso en cartera" not in texto
+    assert "peso antes" not in texto
+    assert "Reducción proporcional" not in texto
+
+
+def test_el_mensaje_no_lleva_cierra_todo_el_activo():
+    changes = diff_snapshots(snap(asset(1002, 1.0)), snap())
+    texto = render_user_changes(USER, changes, instrument_labels=LABELS)
+    assert "cierra todo el activo" not in texto
 
 
 def test_troceado_de_mensajes_largos():

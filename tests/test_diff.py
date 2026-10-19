@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from etoro_monitor.diff import diff_snapshots  # noqa: E402
+from etoro_monitor.diff import diff_snapshots, split_adjustment  # noqa: E402
 from etoro_monitor.models import Asset, EtoroUser, Position, Snapshot  # noqa: E402
 
 # Usuario ficticio: los tests no deben contener datos de personas reales.
@@ -220,3 +220,144 @@ def test_pasar_de_largo_a_corto_se_ve_como_venta_y_compra():
     assert kinds(changes) == [("opened", 1002), ("closed", 1002)]
     assert changes[0].is_short is True
     assert changes[1].is_short is False
+
+
+# ---------------------------------------------------------------------- #
+# Ajustes proporcionales: no son compras ni ventas
+# ---------------------------------------------------------------------- #
+def _muchas(factor: float, cuantas: int = 12, *, pct: float = 10.0):
+    """Un activo con `cuantas` posiciones, todas multiplicadas por `factor`."""
+    return asset(
+        1002,
+        1.0 * factor,
+        pct=pct,
+        extra={2000 + i: 1.0 * factor for i in range(cuantas - 1)},
+    )
+
+
+def test_un_ajuste_proporcional_no_son_ventas():
+    """El caso real: 12 posiciones bajan lo mismo (0,3%) -> un ajuste."""
+    changes = diff_snapshots(snap(_muchas(1.0)), snap(_muchas(0.997)))
+    assert len(changes) == 12
+    operaciones, ajuste = split_adjustment(
+        changes, total_positions=12, total_assets=1
+    )
+    assert operaciones == []
+    assert ajuste is not None
+    assert ajuste.positions == 12
+    assert abs(ajuste.factor - 0.997) < 1e-9
+    assert abs(ajuste.percentage - 0.3) < 1e-9
+
+
+def test_una_venta_suelta_no_es_un_ajuste():
+    changes = diff_snapshots(snap(asset(1002, 1.0)), snap(asset(1002, 0.5)))
+    operaciones, ajuste = split_adjustment(
+        changes, total_positions=1, total_assets=1
+    )
+    assert ajuste is None
+    assert len(operaciones) == 1
+
+
+def test_un_ajuste_no_se_come_una_venta_real():
+    """12 posiciones al 0,997 (ajuste) y una que se vende a la mitad (real)."""
+    before = snap(_muchas(1.0))
+    after = snap(
+        asset(
+            1002,
+            0.5,
+            extra={2000 + i: 0.997 for i in range(11)},
+        )
+    )
+    operaciones, ajuste = split_adjustment(
+        diff_snapshots(before, after), total_positions=12, total_assets=1
+    )
+    assert ajuste is not None
+    assert ajuste.positions == 11
+    assert len(operaciones) == 1
+    assert operaciones[0].position_id == 1002
+
+
+def test_cambios_de_tamanos_distintos_no_son_un_ajuste():
+    """Si cada posición baja una cosa distinta, son operaciones."""
+    before = snap(
+        asset(1002, 1.0, extra={2000: 1.0, 2001: 1.0, 2002: 1.0, 2003: 1.0})
+    )
+    after = snap(
+        asset(1002, 0.8, extra={2000: 0.9, 2001: 0.7, 2002: 0.85, 2003: 0.6})
+    )
+    operaciones, ajuste = split_adjustment(
+        diff_snapshots(before, after), total_positions=5, total_assets=1
+    )
+    assert ajuste is None
+    assert len(operaciones) == 5
+
+
+def test_una_subida_proporcional_no_se_filtra_son_compras():
+    changes = diff_snapshots(snap(_muchas(1.0)), snap(_muchas(1.003)))
+    operaciones, ajuste = split_adjustment(
+        changes, total_positions=12, total_assets=1
+    )
+    assert ajuste is None
+    assert len(operaciones) == 12
+
+
+def test_las_altas_y_las_bajas_de_posicion_se_mantienen():
+    """Un ajuste proporcional no debe ocultar un cierre de posición."""
+    before = snap(
+        asset(1002, 1.0, extra={2000 + i: 1.0 for i in range(5)}),
+        asset(1003, 1.0, extra={3000 + i: 1.0 for i in range(5)}),
+        asset(5712, 1.0),
+    )
+    after = snap(
+        asset(1002, 0.997, extra={2000 + i: 0.997 for i in range(5)}),
+        asset(1003, 0.997, extra={3000 + i: 0.997 for i in range(5)}),
+    )
+    operaciones, ajuste = split_adjustment(
+        diff_snapshots(before, after), total_positions=13, total_assets=3
+    )
+    assert ajuste is not None and ajuste.positions == 12
+    assert kinds(operaciones) == [("closed", 5712)]
+
+
+def test_vender_parte_de_un_solo_activo_no_es_un_ajuste():
+    """Un activo con muchas posiciones, al 10%: es una venta de ese activo."""
+    before = snap(
+        asset(1002, 1.0, extra={2000 + i: 1.0 for i in range(19)}),
+        asset(1003, 1.0, extra={3000 + i: 1.0 for i in range(19)}),
+    )
+    after = snap(
+        asset(1002, 0.9, extra={2000 + i: 0.9 for i in range(19)}),
+        asset(1003, 1.0, extra={3000 + i: 1.0 for i in range(19)}),
+    )
+    operaciones, ajuste = split_adjustment(
+        diff_snapshots(before, after), total_positions=40, total_assets=2
+    )
+    assert ajuste is None, "un solo activo no es un ajuste de cartera"
+    assert len(operaciones) == 20
+
+
+def test_un_ajuste_que_no_cubre_la_cartera_no_es_un_ajuste():
+    """Bajar el 0,3% de 6 posiciones de una cartera de 106 no es un ajuste."""
+    before = snap(
+        asset(1002, 1.0, extra={2000 + i: 1.0 for i in range(5)}),
+        asset(1003, 1.0, extra={3000 + i: 1.0 for i in range(99)}),
+    )
+    after = snap(
+        asset(1002, 0.997, extra={2000 + i: 0.997 for i in range(5)}),
+        asset(1003, 1.0, extra={3000 + i: 1.0 for i in range(99)}),
+    )
+    operaciones, ajuste = split_adjustment(
+        diff_snapshots(before, after), total_positions=106, total_assets=2
+    )
+    assert ajuste is None
+    assert len(operaciones) == 6
+
+
+def test_un_ajuste_en_una_cartera_de_un_solo_activo_si_se_resume():
+    """Si toda la cartera es un activo, no hay "varios activos" que exigir."""
+    changes = diff_snapshots(snap(_muchas(1.0)), snap(_muchas(0.997)))
+    operaciones, ajuste = split_adjustment(
+        changes, total_positions=12, total_assets=1
+    )
+    assert ajuste is not None
+    assert operaciones == []

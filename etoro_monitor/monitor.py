@@ -14,12 +14,17 @@ from .client import (
     UserNotFound,
 )
 from .cooldown import CooldownStore, error_key
-from .diff import diff_snapshots
-from .models import Asset, Change, EtoroUser, Instrument, Position, Snapshot
+from .diff import diff_snapshots, split_adjustment
+from .models import Adjustment, Asset, Change, EtoroUser, Instrument, Position, Snapshot
 from .render import render_baseline, render_problem, render_user_changes
 from .state import RuntimeState, State
 
 log = logging.getLogger(__name__)
+
+
+def _es_nombre_de_relleno(nombre: str) -> bool:
+    """¿Es el texto de emergencia ("Instrumento 8804") y no un nombre real?"""
+    return nombre.startswith("Instrumento ")
 
 
 @dataclass
@@ -30,6 +35,8 @@ class UserReport:
     baseline: bool = False
     error: Optional[str] = None
     requests: int = 0
+    # Ajuste proporcional detectado en esta pasada (no es una operación).
+    adjustment: Optional[Adjustment] = None
 
 
 class Monitor:
@@ -142,13 +149,18 @@ class Monitor:
         )
 
         changes: list[Change] = []
+        adjustment: Optional[Adjustment] = None
         if (
             previous_state is not None
             and previous_state.assets
             and not aprendiendo_posiciones
         ):
             previous = Snapshot(user=previous_state.user, assets=dict(previous_state.assets))
-            changes = diff_snapshots(previous, snapshot)
+            changes, adjustment = split_adjustment(
+                diff_snapshots(previous, snapshot),
+                total_positions=sum(len(a.positions) for a in previous.assets.values()),
+                total_assets=len(previous.instrument_ids),
+            )
 
         # El estado guarda SOLO la foto actual: se asigna, no se acumula. Lo
         # que ya no está en la cartera desaparece del fichero.
@@ -176,6 +188,22 @@ class Monitor:
                 render_user_changes(user, changes, instrument_labels=labels)
             )
             log.info("%s: %s operación(es) notificadas", user.username, len(changes))
+            if adjustment is not None:
+                log.info(
+                    "%s: además, ajuste proporcional del %.2f%% en %d posiciones "
+                    "(no se avisa como operación)",
+                    user.username,
+                    adjustment.percentage,
+                    adjustment.positions,
+                )
+        elif adjustment is not None:
+            # Solo hubo ajuste: no hay compras ni ventas que avisar.
+            log.info(
+                "%s: ajuste proporcional del %.2f%% en %d posiciones (sin aviso)",
+                user.username,
+                adjustment.percentage,
+                adjustment.positions,
+            )
         else:
             log.info("%s: sin operaciones", user.username)
 
@@ -185,6 +213,7 @@ class Monitor:
             changes=changes,
             baseline=is_baseline,
             requests=self.client.request_count - started,
+            adjustment=adjustment,
         )
 
     # ------------------------------------------------------------------ #
@@ -288,8 +317,15 @@ class Monitor:
         return posiciones
 
     def _ensure_instrument(self, instrument_id: int) -> None:
-        """Descarga el nombre del activo la primera vez que lo vemos."""
-        if instrument_id in self.state.instruments:
+        """Descarga el nombre del activo si aún no lo tenemos.
+
+        Si el catálogo contesta sin nombre, NO se cachea el hueco "Instrumento
+        N": se reintenta en la siguiente pasada. Antes se guardaba ese texto
+        como si fuera el nombre y el aviso se quedaba con "Instrumento 8804"
+        para siempre, aunque el catálogo sí tuviera "Sandisk Corp/DE (SNDK)".
+        """
+        cacheado = self.state.instruments.get(instrument_id)
+        if cacheado is not None and not _es_nombre_de_relleno(cacheado.name):
             return
         try:
             raw = self.client.get_instrument(instrument_id)
@@ -298,8 +334,15 @@ class Monitor:
             return
         if not raw:
             return
+        nombre = str(raw.get("InstrumentDisplayName") or "").strip()
+        if not nombre:
+            log.warning(
+                "El catálogo no da nombre para %s: se reintentará en la próxima pasada",
+                instrument_id,
+            )
+            return
         self.state.instruments[instrument_id] = Instrument(
             instrument_id=int(raw.get("InstrumentID", instrument_id)),
-            name=str(raw.get("InstrumentDisplayName") or f"Instrumento {instrument_id}"),
+            name=nombre,
             symbol=str(raw.get("SymbolFull") or ""),
         )

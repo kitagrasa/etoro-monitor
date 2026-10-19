@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from etoro_monitor.client import EtoroClient  # noqa: E402
+from etoro_monitor.models import Instrument  # noqa: E402
 from etoro_monitor.monitor import Monitor  # noqa: E402
 from etoro_monitor.state import State  # noqa: E402
 
@@ -230,4 +231,114 @@ def test_tras_migrar_el_estado_ya_compara_posiciones(tmp_path):
 
     assert len(avisos) == 1
     assert "COMPRA PARCIAL" in avisos[0]
+
+
+# ---------------------------------------------------------------------- #
+# Nombre del activo: no quedarse con "Instrumento 8804"
+# ---------------------------------------------------------------------- #
+class ClienteDeMetadatos:
+    """Solo responde a get_instrument, que es lo único que usa este test."""
+
+    def __init__(self, respuesta: dict | None):
+        self.respuesta = respuesta
+        self.llamadas = 0
+
+    def get_instrument(self, instrument_id):
+        self.llamadas += 1
+        return self.respuesta
+
+
+def test_sin_nombre_no_se_cachea_el_relleno(tmp_path):
+    """Si el catálogo no da nombre, no se guarda "Instrumento 8804" para siempre."""
+    state = State(path=tmp_path / "state.json")
+    monitor = Monitor(ClienteDeMetadatos({}), state, notify=lambda _t: None)
+
+    monitor._ensure_instrument(8804)
+    assert 8804 not in state.instruments, "se cacheó un nombre de relleno"
+
+    # La pasada siguiente ya trae el nombre: se guarda bien.
+    monitor = Monitor(
+        ClienteDeMetadatos(
+            {"InstrumentDisplayName": "Sandisk Corp/DE", "SymbolFull": "SNDK"}
+        ),
+        state,
+        notify=lambda _t: None,
+    )
+    monitor._ensure_instrument(8804)
+    assert state.instruments[8804].label == "Sandisk Corp/DE (SNDK)"
+
+
+def test_un_nombre_de_relleno_ya_cacheado_se_reintenta(tmp_path):
+    """Regresión: un estado viejo pudo guardar "Instrumento 8804" como nombre."""
+    state = State(path=tmp_path / "state.json")
+    state.instruments[8804] = Instrument(8804, "Instrumento 8804", "")
+
+    monitor = Monitor(
+        ClienteDeMetadatos(
+            {"InstrumentDisplayName": "Sandisk Corp/DE", "SymbolFull": "SNDK"}
+        ),
+        state,
+        notify=lambda _t: None,
+    )
+    monitor._ensure_instrument(8804)
+    assert state.instruments[8804].label == "Sandisk Corp/DE (SNDK)"
+
+
+# ---------------------------------------------------------------------- #
+# Ajustes proporcionales de punta a punta
+# ---------------------------------------------------------------------- #
+def _cartera_con(factor: float = 1.0, *, compra_nueva: bool = False):
+    """Seis instrumentos con una posición cada uno, todas al mismo factor."""
+    cartera = []
+    posiciones = {}
+    for iid in (1002, 1003, 1004, 1005, 1006, 1007):
+        cartera.append({"InstrumentID": iid, "Direction": "Buy", "Invested": 5.0})
+        posiciones[iid] = [{"PositionID": iid * 10, "IsBuy": True, "Amount": factor}]
+    if compra_nueva:
+        posiciones[1002].append({"PositionID": 9999, "IsBuy": True, "Amount": 0.5})
+    return {"AggregatedPositions": cartera}, posiciones
+
+
+def _pasada(
+    state: State, avisos: list[str], factor: float, *, compra_nueva: bool = False
+):
+    cartera, posiciones = _cartera_con(factor, compra_nueva=compra_nueva)
+    client = EtoroClient(
+        delay=0.0,
+        session=FakeSession(cartera=cartera, posiciones=posiciones),
+    )
+    reportes = Monitor(client, state, notify=avisos.append).run(["UsuarioEjemplo"])
+    client.close()
+    return reportes[0]
+
+
+def test_un_ajuste_proporcional_solo_no_se_avisa(tmp_path):
+    """Solo un ajuste del 0,30%: no hay nada que contar, no se manda mensaje."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada(state, avisos, 1.0)  # línea base
+    avisos.clear()
+
+    reporte = _pasada(state, avisos, 0.997)
+
+    assert avisos == []
+    assert reporte.adjustment is not None
+    assert reporte.adjustment.positions == 6
+    assert abs(reporte.adjustment.percentage - 0.3) < 1e-9
+
+
+def test_un_ajuste_con_una_compra_real_avisa_solo_la_compra(tmp_path):
+    """El ajuste no se menciona; la compra real se avisa."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada(state, avisos, 1.0)  # línea base
+    avisos.clear()
+
+    reporte = _pasada(state, avisos, 0.997, compra_nueva=True)
+
+    assert len(avisos) == 1
+    assert "COMPRA PARCIAL" in avisos[0]
+    assert "Reducción proporcional" not in avisos[0]
+    assert len(reporte.changes) == 1
+
 

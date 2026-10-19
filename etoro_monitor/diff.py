@@ -25,7 +25,10 @@ detectarse por separado en largo y en corto.
 
 from __future__ import annotations
 
-from .models import UNITS_DECIMALS, Asset, Change, Position, Snapshot
+import statistics
+from typing import Optional
+
+from .models import UNITS_DECIMALS, Adjustment, Asset, Change, Position, Snapshot
 
 
 def diff_snapshots(before: Snapshot, after: Snapshot) -> list[Change]:
@@ -151,3 +154,95 @@ def summarize_by_instrument(changes: list[Change]) -> dict[str, list[Change]]:
     for change in changes:
         grouped.setdefault(change.asset.key, []).append(change)
     return grouped
+
+
+# ---------------------------------------------------------------------- #
+# Ajustes proporcionales: separarlos de las operaciones reales
+# ---------------------------------------------------------------------- #
+# Cuántas posiciones tienen que cambiar para poder hablar de "ajuste".
+ADJUSTMENT_MIN_POSITIONS = 4
+# Qué fracción de las cambiadas tiene que compartir el mismo factor (0,8 = 80%).
+ADJUSTMENT_SHARE = 0.8
+# Tolerancia al comparar factores (0,001 = una décima de punto porcentual).
+ADJUSTMENT_TOLERANCE = 0.001
+# Cuánto tiene que bajar como mínimo el factor para considerarlo un ajuste.
+ADJUSTMENT_MIN_DROP = 0.0005
+# Qué fracción de TODA la cartera tiene que entrar en el ajuste. Es lo que
+# distingue un ajuste de cartera (retirada, rebalanceo) de vender un 10% de un
+# solo activo con muchas posiciones: lo segundo puede ser la mitad de las
+# posiciones cambiadas, pero no de la cartera entera.
+ADJUSTMENT_PORTFOLIO_SHARE = 0.5
+
+
+def split_adjustment(
+    changes: list[Change],
+    *,
+    total_positions: int,
+    total_assets: int,
+) -> tuple[list[Change], Optional[Adjustment]]:
+    """Separa un ajuste proporcional de las operaciones reales.
+
+    La idea (heurística, pero basada en un modelo): si muchas posiciones bajan
+    en el MISMO factor, no son muchas ventas, es un solo ajuste de la cartera
+    (una retirada de efectivo, un rebalanceo...). En cambio, una venta real de
+    verdad tiene su propio factor y no explica al resto.
+
+    Para no confundir una venta grande de UN solo activo con un ajuste, se
+    exigen dos cosas más:
+
+    * que el ajuste cubra al menos la mitad de TODAS las posiciones abiertas
+      (no solo de las que cambiaron);
+    * que toque al menos dos activos distintos (si la cartera solo tiene uno,
+      no hay nada que repartir y se omite esta condición).
+
+    Devuelve `(operaciones, ajuste)`:
+
+    * si no hay ajuste, `(changes, None)`;
+    * si lo hay, las operaciones que NO forman parte del ajuste y un
+      `Adjustment` con el factor y cuántas posiciones entraron.
+    """
+    candidatos: list[tuple[Change, float]] = []
+    for change in changes:
+        if change.kind not in ("increased", "reduced"):
+            continue
+        if change.before is None or change.after is None or change.position_id is None:
+            continue
+        antes = change.before.positions.get(change.position_id)
+        ahora = change.after.positions.get(change.position_id)
+        if antes is None or ahora is None or antes.units <= 0:
+            continue
+        candidatos.append((change, ahora.units / antes.units))
+
+    if len(candidatos) < ADJUSTMENT_MIN_POSITIONS:
+        return changes, None
+
+    factor = statistics.median(ratio for _, ratio in candidatos)
+    # Solo tiene sentido para bajadas: una subida proporcional es una compra
+    # (o algo raro), y no queremos silenciarla.
+    if factor >= 1.0 - ADJUSTMENT_MIN_DROP:
+        return changes, None
+
+    dentro = [
+        (change, ratio)
+        for change, ratio in candidatos
+        if abs(ratio - factor) <= ADJUSTMENT_TOLERANCE
+    ]
+    if len(dentro) / len(candidatos) < ADJUSTMENT_SHARE:
+        return changes, None
+
+    # Tiene que ser una parte grande de TODA la cartera, no solo de lo que
+    # cambió: si no, vender el 10% de un activo con 20 posiciones se colaría.
+    if total_positions > 0 and len(dentro) / total_positions < ADJUSTMENT_PORTFOLIO_SHARE:
+        return changes, None
+
+    # Y tiene que repartirse entre varios activos. Un solo activo, por muy
+    # grande que sea, es una venta de ese activo, no un ajuste de cartera.
+    activos = {change.instrument_id for change, _ in dentro}
+    if total_assets > 1 and len(activos) < 2:
+        return changes, None
+
+    ajustadas = {id(change) for change, _ in dentro}
+    operaciones = [change for change in changes if id(change) not in ajustadas]
+    return operaciones, Adjustment(factor=factor, positions=len(dentro))
+
+

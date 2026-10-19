@@ -84,20 +84,23 @@ def _plural(count: int, singular: str, plural: str) -> str:
 # Línea de peso
 # ---------------------------------------------------------------------- #
 def _weight_line(change: Change) -> str:
-    """El peso del activo, como contexto de la operación."""
+    """El peso del activo, como contexto: solo el porcentaje.
+
+    Sin etiqueta: un activo nuevo enseña el peso que tiene; uno que desaparece,
+    el que tenía; y en los demás, "antes → después" (o uno solo si coincide al
+    céntimo).
+    """
     antes, ahora = change.weight_before, change.weight_after
 
-    if change.kind == "opened":
-        return f"peso en cartera: {format_weight(ahora)}"
-    if change.kind == "closed":
-        return f"peso antes: {format_weight(antes)}"
+    if change.kind == "opened" and antes is None:
+        return format_weight(ahora)
+    if change.kind == "closed" and ahora is None:
+        return format_weight(antes)
     if antes is None or ahora is None:
         return ""
-    # Si el peso no se ha movido (redondeado a céntimos) es más claro decirlo
-    # una sola vez que poner "16,06% → 16,06%".
     if round(antes, 2) == round(ahora, 2):
-        return f"peso en cartera: {format_weight(ahora)}"
-    return f"peso en cartera: {format_weight(antes)} → {format_weight(ahora)}"
+        return format_weight(ahora)
+    return f"{format_weight(antes)} → {format_weight(ahora)}"
 
 
 # ---------------------------------------------------------------------- #
@@ -116,21 +119,19 @@ def render_operation(
     """
     ordenadas = _sorted_changes(changes)
     principal = ordenadas[0]
-    emoji, verbo = action_of(
+    emoji, _ = action_of(
         principal.kind, principal.is_short, partial=principal.is_partial
     )
-    extra = [_short_action(c) for c in ordenadas[1:]]
 
-    titulo = f"{emoji} <b>{verbo}</b>"
-    if extra:
-        titulo += " + " + " + ".join(f"<b>{escape(e)}</b>" for e in extra)
+    # Cada verbo una sola vez: tres ventas parciales se leen "VENTA PARCIAL",
+    # sin "VENTA PARCIAL + VENTA PARCIAL + VENTA PARCIAL" ni "×3".
+    partes = [f"<b>{escape(verbo)}</b>" for verbo in _unique_actions(ordenadas)]
+    titulo = f"{emoji} " + " + ".join(partes)
     titulo += f" · {escape(instrument_label)}"
 
     notas: list[str] = []
     if any(c.instrument_was_new for c in ordenadas):
         notas.append("nueva en cartera")
-    if any(c.instrument_now_empty for c in ordenadas):
-        notas.append("cierra todo el activo")
     if notas:
         titulo += f"  <i>({' / '.join(notas)})</i>"
 
@@ -153,10 +154,18 @@ def _sorted_changes(changes: Sequence[Change]) -> list[Change]:
     )
 
 
-def _short_action(change: Change) -> str:
-    """Solo el verbo, sin emoji, para acompañar a la operación principal."""
-    return action_of(change.kind, change.is_short, partial=change.is_partial)[1]
+def _unique_actions(changes: Sequence[Change]) -> list[str]:
+    """Un verbo por cada tipo de operación, en orden y sin repetir.
 
+    Tres ventas parciales del mismo activo dan ["VENTA PARCIAL"]: la palabra
+    sale una vez, sin "+ VENTA PARCIAL" ni "×3".
+    """
+    vistos: list[str] = []
+    for change in changes:
+        verbo = action_of(change.kind, change.is_short, partial=change.is_partial)[1]
+        if verbo not in vistos:
+            vistos.append(verbo)
+    return vistos
 
 
 # ---------------------------------------------------------------------- #
@@ -189,6 +198,7 @@ def render_user_changes(
         f"{_plural(activos, 'activo', 'activos')}</i>",
         "",
     ]
+
     pie = ["", f'🔗 <a href="{escape(user.portfolio_url)}">Ver cartera pública</a>']
     return "\n".join(cabecera + bloques + pie)
 
