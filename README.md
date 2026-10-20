@@ -64,19 +64,28 @@ Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
    0,71%
 ```
 
-La diferencia entre **COMPRA** y **COMPRA PARCIAL** la marca eToro: da un
-identificador distinto a cada orden. Si aparece un identificador que antes no
-estaba, es una compra; si lo que sube son las unidades de una operación que ya
-existía, es una compra parcial. Por eso "ya tenía Alphabet y ha comprado más"
-sale como compra parcial aunque antes ya tuviera el activo.
+La diferencia entre **COMPRA** y **COMPRA PARCIAL** sale del activo: si no estaba
+en la cartera es una **compra**; si ya estaba y acaba con más unidades, una
+**compra parcial**. Y al revés: si desaparece es una **venta**, y si se queda con
+menos unidades, una **venta parcial**.
 
-Si de un mismo activo se venden unas cosas y se compran otras en la misma
-pasada, las dos operaciones van en el mismo bloque, para no repetir el nombre
-del activo dos veces:
+### Solo el neto: para copiar, lo que cuenta es el resultado
 
-```
-🟢 COMPRA PARCIAL + 🔻 VENTA PARCIAL · Alphabet (GOOG)
-```
+Esto sirve para **copiar**, así que lo que importa es cómo queda el activo entre
+dos pasadas, no el camino. Se compara el total del activo y **se avisa una sola
+vez, del neto**:
+
+| Entre las dos pasadas | Qué se avisa |
+|---|---|
+| compró 5 y vendió esos mismos 5 | **nada** (el activo queda igual) |
+| compró 5 y vendió 4 | **COMPRA PARCIAL** (hay que comprar 1) |
+| vendió 5 y recompró 4 | **VENTA PARCIAL** (hay que vender 1) |
+| abrió una posición y cerró otra del mismo activo | **nada** si el total no cambia |
+
+Da igual en cuántas posiciones lo parta eToro, o si la compra y la venta caen en
+posiciones distintas: el aviso es uno por activo y dice el resultado. Un activo
+que termina con las mismas unidades que empezó no genera aviso, aunque por el
+camino haya habido compras y ventas.
 
 ### Ajustes proporcionales: no son compras ni ventas
 
@@ -105,7 +114,8 @@ exigen dos cosas más:
   hay nada que repartir y se omite esta condición).
 
 Así, vender el 10% de un activo con 20 posiciones **no** es un ajuste: se avisa
-como 20 ventas parciales. Una retirada que reduce el 98% de la cartera, sí.
+como una venta parcial de ese activo (el neto). Una retirada que reduce el 98%
+de la cartera, sí.
 
 - Si en la pasada **solo** hay un ajuste, no se manda nada (queda en el log).
 - Si hay un ajuste **y** operaciones reales, el mensaje lleva **solo** las
@@ -121,10 +131,9 @@ como 20 ventas parciales. Una retirada que reduce el 98% de la cartera, sí.
    5,36%
 ```
 
-Los mensajes son deliberadamente escuetos: cada verbo sale **una vez** (sin
-`+ COMPRA PARCIAL` repetido ni `×3`), el peso va **sin etiqueta** (solo el
-porcentaje, o `antes → después` si cambió) y no se añaden notas como
-"cierra todo el activo".
+Los mensajes son deliberadamente escuetos: un bloque por activo, un verbo por
+bloque, el peso **sin etiqueta** (solo el porcentaje, o `antes → después` si
+cambió) y sin notas como "cierra todo el activo".
 
 Es una heurística, pero basada en un modelo: un solo factor explica casi todos
 los cambios. Los umbrales que usa (`diff.py`) son de consistencia (cuántas
@@ -146,19 +155,16 @@ Devuelve **qué activos han cerrado posiciones y cuántas** desde una fecha, par
 toda la cartera de una vez (**una sola petición**, no una por activo). Y lo que
 lo hace útil: un recorte de eToro **no deja ningún apunte** ahí, y una venta sí.
 
-El monitor lo usa como árbitro, y solo cuando hace falta:
+El monitor lo pide **una vez por persona y pasada** y lo usa como árbitro de las
+bajadas pequeñas (menos del **1%** del activo): se descartan las que no tengan
+ningún cierre que las respalde.
 
-* si el detector de ajustes ya explica las bajadas, **no se consulta** (cero
-  peticiones de más);
-* si quedan bajadas pequeñas sueltas (menos del **1%** de la posición), se
-  consulta una vez y se descartan las que no tengan ningún cierre que las
-  respalde;
-* **una bajada grande no se calla nunca**, aunque el histórico no la respalde:
+* **Una bajada grande no se calla nunca**, aunque el histórico no la respalde:
   si eToro no registrara los cierres parciales, mejor un aviso de más que uno de
-  menos;
-* las compras y las posiciones que desaparecen no se tocan: el histórico solo
-  habla de cierres;
-* si el histórico no contesta (o el estado es antiguo y aún no hay marca de
+  menos.
+* Las compras y los activos que desaparecen no se tocan: el histórico solo habla
+  de cierres.
+* Si el histórico no contesta (o el estado es antiguo y aún no hay marca de
   agua), se decide como siempre. Un fallo suyo **no puede tumbar la pasada**.
 
 El 20/10/2026, con 36 posiciones recortadas un 0,05%, el histórico tenía un único
@@ -696,12 +702,12 @@ etoro-monitor-estado/
 | `/api/logininfo/v1.1/users/<usuario>` | nombre de usuario → `CID` |
 | `/sapi/trade-data-real/live/public/portfolios?cid=` | activos, lado y peso |
 | `/sapi/trade-data-real/live/public/positions?cid=&instrumentId=` | unidades de cada activo |
-| `/sapi/trade-data-real/history/public/portfolios/aggregated/breakdown?cid=&startTime=` | qué activos han cerrado posiciones (solo si hace falta) |
+| `/sapi/trade-data-real/history/public/portfolios/aggregated/breakdown?cid=&startTime=` | qué activos han cerrado posiciones (una por pasada) |
 | `/sapi/instrumentsmetadata/V1.1/instruments/<id>` | nombre y ticker |
 
 **Coste:** ~1 petición por activo y persona (unos 30 con cartera grande), más
-**una sola** del histórico y solo en las pasadas que lo necesitan. Es el precio de
-distinguir una operación de un movimiento del mercado.
+**una sola** del histórico por pasada y persona (cubre todos los activos de
+golpe). Es el precio de distinguir una operación de un movimiento del mercado.
 
 ---
 
@@ -713,11 +719,12 @@ distinguir una operación de un movimiento del mercado.
   forma moderada y bajo tu responsabilidad.
 * **Bloqueos.** eToro usa DataDome/Cloudflare. Si detectamos un captcha, no se
   toca el estado y se avisa.
-* **Operaciones muy seguidas.** Dos operaciones entre dos ejecuciones se ven
-  como una sola: se compara el resultado, no el histórico.
+* **Operaciones muy seguidas.** Se compara el resultado, no el turno de cada
+  orden: si entre dos ejecuciones compra y vende lo mismo, no se avisa de nada;
+  si le queda una unidad más, se avisa de esa unidad. Ese es justo el sentido de
+  copiar.
 * **Un cambio de lado** (cerrar el largo y abrir el corto del mismo activo) se
-  anuncia como una **VENTA** y una **COMPRA**, que es lo que ha pasado de
-  verdad, aunque las unidades totales bajen.
+  anuncia como dos movimientos, uno por lado, que es lo que ha pasado de verdad.
 * **Repos inactivos.** GitHub desactiva los workflows programados tras 60 días
   sin actividad; al usar cron-job.org esto no te afecta.
 

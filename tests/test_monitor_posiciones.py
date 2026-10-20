@@ -388,15 +388,18 @@ UNA = {iid: 1.0 for iid in ACTIVOS_ARBITRO}
 RECORTE_DESIGUAL = {1002: 0.999, 1003: 0.997, 1004: 0.995, 1005: 0.993, 1006: 0.991}
 
 
-def _cartera_arbitro(unidades):
+def _cartera_de(unidades):
+    """Cartera con una posición por cada activo de `unidades`."""
     cartera = []
     posiciones = {}
-    for iid in ACTIVOS_ARBITRO:
+    for iid, cantidad in unidades.items():
         cartera.append({"InstrumentID": iid, "Direction": "Buy", "Invested": 5.0})
-        posiciones[iid] = [
-            {"PositionID": iid * 10, "IsBuy": True, "Amount": unidades[iid]}
-        ]
+        posiciones[iid] = [{"PositionID": iid * 10, "IsBuy": True, "Amount": cantidad}]
     return {"AggregatedPositions": cartera}, posiciones
+
+
+def _cartera_arbitro(unidades):
+    return _cartera_de({iid: unidades[iid] for iid in ACTIVOS_ARBITRO})
 
 
 def _pasada_arbitro(state, avisos, unidades, *, cierres=None, falla=None):
@@ -484,8 +487,8 @@ def test_un_cierre_en_el_historico_respalda_la_bajada(tmp_path):
     assert len(avisos) == 1
 
 
-def test_sin_bajadas_no_se_consulta_el_historico(tmp_path):
-    """Una pasada de compras no gasta ni una petición en el histórico."""
+def test_una_pasada_de_compras_no_descarta_nada(tmp_path):
+    """El histórico se pide siempre, pero en una compra no toca nada."""
     state = State(path=tmp_path / "state.json")
     avisos: list[str] = []
     _pasada_arbitro(state, avisos, UNA)
@@ -495,9 +498,9 @@ def test_sin_bajadas_no_se_consulta_el_historico(tmp_path):
         state, avisos, {**UNA, 1002: 1.5}, cierres=[]
     )
 
-    assert session.historico_llamadas == 0
-    assert reporte.closes is None
-    assert len(avisos) == 1
+    assert session.historico_llamadas == 1
+    assert reporte.closes == {}
+    assert len(reporte.changes) == 1
     assert "COMPRA PARCIAL" in avisos[0]
 
 
@@ -533,5 +536,3 @@ def test_un_estado_sin_marca_de_agua_no_se_calla_nada(tmp_path):
     assert len(avisos) == 1
     # Y se aprovecha para dejar puesta la marca de agua.
     assert state.user("usuarioejemplo").history_since is not None
-
-

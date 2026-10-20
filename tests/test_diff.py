@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from etoro_monitor.diff import diff_snapshots, split_adjustment  # noqa: E402
+from etoro_monitor.diff import diff_snapshots, netear, split_adjustment  # noqa: E402
 from etoro_monitor.models import Asset, EtoroUser, Position, Snapshot  # noqa: E402
 
 # Usuario ficticio: los tests no deben contener datos de personas reales.
@@ -443,4 +443,80 @@ def test_un_recorte_minusculo_no_tapa_la_venta_de_verdad():
     # la que se cerró.
     assert len(operaciones) == 8
     assert {c.instrument_id for c in operaciones} == {11230}
+
+
+# ---------------------------------------------------------------------- #
+# El neto del activo: lo único que hay que copiar
+# ---------------------------------------------------------------------- #
+def netos(before: Snapshot, after: Snapshot) -> list:
+    return netear(diff_snapshots(before, after))
+
+
+def test_netear_comprar_y_vender_lo_mismo_no_deja_nada():
+    """Comprar 5 y vender esos mismos 5 entre dos pasadas: no hay nada que hacer.
+
+    Por posición sí han pasado dos cosas (una posición se cierra y otra se
+    abre), pero el activo termina con las mismas unidades: no se avisa.
+    """
+    before = snap(asset(1002, 5.0, extra={9999: 5.0}))  # 10 unidades
+    after = snap(asset(1002, 5.0, extra={8888: 5.0}))  # otras 10, con otro ID
+
+    assert len(diff_snapshots(before, after)) == 2, "por posición sí hubo dos"
+    assert netos(before, after) == []
+
+
+def test_netear_comprar_5_y_vender_4_deja_una_compra_parcial_de_1():
+    """Lo que hay que copiar es el neto: 1 unidad más."""
+    before = snap(asset(1002, 5.0, extra={9999: 5.0}))  # 10 unidades
+    after = snap(asset(1002, 5.0, extra={8888: 6.0}))  # 11 unidades
+
+    cambios = netos(before, after)
+
+    assert [c.kind for c in cambios] == ["increased"]
+    assert cambios[0].after.units - cambios[0].before.units == 1.0
+    assert cambios[0].is_partial is True
+
+
+def test_netear_una_venta_por_partes_es_una_sola_venta_parcial():
+    before = snap(asset(1002, 5.0, extra={9999: 5.0}))  # 10 unidades
+    after = snap(asset(1002, 5.0, extra={8888: 4.0}))  # 9 unidades
+
+    cambios = netos(before, after)
+
+    assert [c.kind for c in cambios] == ["reduced"]
+    assert cambios[0].after.units - cambios[0].before.units == -1.0
+    assert cambios[0].is_partial is True
+
+
+def test_netear_un_activo_nuevo_es_una_compra():
+    cambios = netos(snap(), snap(asset(1002, 0.6)))
+
+    assert [c.kind for c in cambios] == ["opened"]
+    assert cambios[0].instrument_was_new is True
+    assert cambios[0].is_partial is False
+
+
+def test_netear_un_activo_que_desaparece_es_una_venta():
+    cambios = netos(snap(asset(1002, 1.0)), snap())
+
+    assert [c.kind for c in cambios] == ["closed"]
+    assert cambios[0].instrument_now_empty is True
+    assert cambios[0].is_partial is False
+
+
+def test_netear_abrir_una_posicion_mas_es_compra_parcial():
+    """El activo ya estaba: meter más dinero es una compra parcial."""
+    cambios = netos(snap(asset(1002, 1.0)), snap(asset(1002, 1.0, extra={9999: 0.5})))
+
+    assert [c.kind for c in cambios] == ["increased"]
+    assert cambios[0].instrument_was_new is False
+
+
+def test_netear_deja_un_cambio_por_activo():
+    """Tres posiciones del mismo activo que bajan: un solo cambio."""
+    before = snap(asset(1002, 1.0, extra={2001: 1.0, 2002: 1.0}))
+    after = snap(asset(1002, 0.5, extra={2001: 0.5, 2002: 0.5}))
+
+    assert len(diff_snapshots(before, after)) == 3
+    assert [c.kind for c in netos(before, after)] == ["reduced"]
 

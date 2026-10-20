@@ -36,17 +36,24 @@ UMBRAL_BAJADA_PEQUENA = 0.01
 
 
 def bajada_relativa(change: Change) -> Optional[float]:
-    """Qué fracción de la posición se ha vendido (0,05 = un 5%).
+    """Qué fracción del activo se ha vendido (0,05 = un 5%).
 
-    `None` si no se puede calcular (la posición no estaba en las dos fotos).
+    Se mide sobre las unidades totales del activo (`netear` deja un solo cambio
+    por activo, sin posición). Si el cambio viniera de una posición concreta, se
+    mide sobre esa posición. `None` si no se puede calcular.
     """
-    if change.position_id is None or change.before is None or change.after is None:
+    if change.before is None or change.after is None:
         return None
-    antes = change.before.positions.get(change.position_id)
-    ahora = change.after.positions.get(change.position_id)
-    if antes is None or ahora is None or antes.units <= 0:
+
+    if change.position_id is not None:
+        antes = change.before.positions.get(change.position_id)
+        ahora = change.after.positions.get(change.position_id)
+        if antes is not None and ahora is not None and antes.units > 0:
+            return (antes.units - ahora.units) / antes.units
+
+    if change.before.units <= 0:
         return None
-    return (antes.units - ahora.units) / antes.units
+    return (change.before.units - change.after.units) / change.before.units
 
 
 def es_pequena(change: Change, *, umbral: float = UMBRAL_BAJADA_PEQUENA) -> bool:

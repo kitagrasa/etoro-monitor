@@ -178,6 +178,12 @@ def render_user_changes(
     instrument_labels: Mapping[int, str],
     timestamp: Optional[str] = None,
 ) -> str:
+    """Un mensaje con las operaciones de la pasada.
+
+    Cada activo llega ya reducido a su neto (`diff.netear`), así que aquí hay
+    como mucho un cambio por activo y el mensaje no puede decir cosas del estilo
+    "compra parcial y venta parcial" del mismo activo.
+    """
     ordenadas = _sorted_changes(changes)
 
     bloques = [

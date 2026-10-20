@@ -15,6 +15,10 @@ una compra parcial: si alguien que ya tenía Alphabet compra más, el total de
 unidades sube (eso ya se veía), pero además **la posición nueva aparece con su
 propio identificador**, que es la prueba de que ha habido una compra.
 
+Aun así, el aviso que se manda es el **neto del activo** (ver `netear`): este
+monitor es para copiar, así que comprar 5 y vender 5 entre dos pasadas no es
+nada, y comprar 5 y vender 4 es una compra parcial de 1.
+
 Las unidades (y no el precio) siguen siendo la base: solo cambian cuando el
 usuario opera, así que el mercado no puede generar un aviso falso. El peso del
 activo se mueve solo, y por eso no se usa para detectar nada.
@@ -154,6 +158,56 @@ def summarize_by_instrument(changes: list[Change]) -> dict[str, list[Change]]:
     for change in changes:
         grouped.setdefault(change.asset.key, []).append(change)
     return grouped
+
+
+def netear(changes: list[Change]) -> list[Change]:
+    """Reduce los cambios de cada activo a UNA operación: el neto.
+
+    Este monitor es para **copiar**: lo que importa es cuántas unidades ha
+    ganado o perdido el activo entre las dos fotos, no por qué posiciones han
+    pasado. Comprar 5 y vender 5 entre dos pasadas es "nada" (la foto no cambia
+    y no hay aviso); comprar 5 y vender 4 es "una compra parcial de 1".
+
+    Por eso, después de comparar posición a posición, se mira el total del
+    activo: si sube, COMPRA PARCIAL; si baja, VENTA PARCIAL; si aparece, COMPRA;
+    si desaparece, VENTA. Un activo que termina igual que empezó no se avisa,
+    aunque por el camino haya habido compras y ventas.
+
+    Así el mensaje no depende de cómo reparta eToro las operaciones entre
+    posiciones (una compra nueva y una venta de otra posición antigua del mismo
+    activo salen como un solo movimiento neto, que es lo que hay que copiar).
+    """
+    grupos = summarize_by_instrument(changes)
+
+    netos: list[Change] = []
+    for grupo in grupos.values():
+        antes = next((c.before for c in grupo if c.before is not None), None)
+        despues = next((c.after for c in grupo if c.after is not None), None)
+        primero = grupo[0]
+        comun = {
+            "instrument_id": primero.instrument_id,
+            "direction": primero.direction,
+            "instrument_was_new": any(c.instrument_was_new for c in grupo),
+            "instrument_now_empty": any(c.instrument_now_empty for c in grupo),
+        }
+
+        if antes is None:
+            # Activo nuevo en la cartera.
+            netos.append(Change(kind="opened", before=None, after=despues, **comun))
+            continue
+        if despues is None:
+            # Activo que ya no está.
+            netos.append(Change(kind="closed", before=antes, after=None, **comun))
+            continue
+
+        delta = round(despues.units, UNITS_DECIMALS) - round(antes.units, UNITS_DECIMALS)
+        if delta > 0:
+            netos.append(Change(kind="increased", before=antes, after=despues, **comun))
+        elif delta < 0:
+            netos.append(Change(kind="reduced", before=antes, after=despues, **comun))
+        # delta == 0: compró y vendió lo mismo. No hay nada que copiar.
+
+    return netos
 
 
 # ---------------------------------------------------------------------- #
