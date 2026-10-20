@@ -10,11 +10,15 @@ se confundan con una compra normal.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, tzinfo, timezone
 from html import escape
 from typing import Iterable, Mapping, Optional, Sequence
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .models import KIND_ORDER, Change, EtoroUser, Snapshot
+
+log = logging.getLogger(__name__)
 
 # (emoji, verbo en largo, verbo en corto, verbo en largo parcial, verbo en
 # corto parcial). Los verbos cortos van en negrita igual que los largos, y
@@ -72,12 +76,36 @@ def format_date(iso: str) -> str:
     return parsed.astimezone(timezone.utc).strftime("%d/%m/%Y")
 
 
-def now_utc() -> str:
-    return datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+# Los mensajes van en hora de Madrid, que es la de quien los lee (y la del
+# horario del monitor). Se usan zonas de verdad, no un desfase fijo, para que el
+# cambio de hora salga solo.
+ZONA_MADRID = "Europe/Madrid"
 
 
-def _plural(count: int, singular: str, plural: str) -> str:
-    return f"{count} {singular if count == 1 else plural}"
+def _zona(nombre: str = ZONA_MADRID) -> tzinfo:
+    """La zona pedida; si el sistema no tiene datos de zonas, UTC.
+
+    En Windows hace falta el paquete `tzdata` (está en requirements.txt). Si
+    falta, el aviso sale en UTC en vez de romperse.
+    """
+    try:
+        return ZoneInfo(nombre)
+    except (ZoneInfoNotFoundError, ValueError, KeyError):
+        log.warning("Sin datos de zona para %s: se usa UTC", nombre)
+        return timezone.utc
+
+
+def en_madrid(momento: Optional[datetime] = None) -> datetime:
+    """El instante (por defecto, ahora) pasado a hora de Madrid."""
+    base = momento or datetime.now(timezone.utc)
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=timezone.utc)
+    return base.astimezone(_zona())
+
+
+def now_madrid() -> str:
+    """'20/10/2026 20:06' (hora de Madrid)."""
+    return en_madrid().strftime("%d/%m/%Y %H:%M")
 
 
 # ---------------------------------------------------------------------- #
@@ -196,12 +224,11 @@ def render_user_changes(
         for grupo in _grouped_by_asset(ordenadas)
     ]
 
-    activos = len({c.instrument_id for c in changes})
+    # Cabecera corta: quién y cuándo. Sin "ha movido su cartera" ni el recuento
+    # de operaciones: el nombre y la fecha ya lo dicen todo (20/10/2026).
     cabecera = [
-        f"🔔 <b>{escape(user.display_name)}</b> ha movido su cartera",
-        f"<i>{timestamp or now_utc()} · "
-        f"{_plural(len(ordenadas), 'operación', 'operaciones')} en "
-        f"{_plural(activos, 'activo', 'activos')}</i>",
+        f"🔔 <b>{escape(user.display_name)}</b>",
+        f"<i>{timestamp or now_madrid()}</i>",
         "",
     ]
 
@@ -234,7 +261,7 @@ def render_baseline(
 
     lineas = [
         f"✅ <b>Monitor activo para {escape(user.display_name)}</b>",
-        f"<i>{timestamp or now_utc()}</i>",
+        f"<i>{timestamp or now_madrid()}</i>",
         "",
         f"Activos en cartera: <b>{len(snapshot.instrument_ids)}</b>",
         "",
@@ -255,7 +282,7 @@ def render_baseline(
 def render_problem(message: str) -> str:
     return (
         "⚠️ <b>Aviso del monitor</b>\n"
-        f"<i>{now_utc()}</i>\n\n"
+        f"<i>{now_madrid()}</i>\n\n"
         f"{escape(message)}"
     )
 

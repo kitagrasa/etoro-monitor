@@ -22,7 +22,7 @@ from .client import Blocked, EtoroClient, EtoroError, PrivatePortfolio, UserNotF
 from .config import Config, load_config
 from .cooldown import BLOCKED_KEY, STATE_ERROR_KEY, CooldownStore
 from .monitor import Monitor
-from .render import now_utc, render_portfolio_table
+from .render import now_madrid, render_portfolio_table
 from .state import RuntimeState, State, StateCorruptError, cooldown_path
 from .telegram import TelegramError, TelegramNotifier
 
@@ -363,7 +363,7 @@ def cmd_notify_test(args: argparse.Namespace) -> int:
 
     text = (
         "✅ <b>Prueba del monitor de eToro</b>\n"
-        f"<i>{now_utc()}</i>\n\n"
+        f"<i>{now_madrid()}</i>\n\n"
         "Si estás leyendo esto, el bot y el chat están bien configurados.\n"
         f"Usuarios vigilados: {usuarios}"
     )

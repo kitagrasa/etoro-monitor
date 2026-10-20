@@ -1,2 +1,4 @@
 requests>=2.31.0
 PyYAML>=6.0.1
+# Datos de zonas horarias: en Windows no vienen de serie y el aviso es en hora de Madrid.
+tzdata>=2024.1

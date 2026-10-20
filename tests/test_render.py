@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -10,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from etoro_monitor.diff import diff_snapshots  # noqa: E402
 from etoro_monitor.models import Asset, EtoroUser, Position, Snapshot  # noqa: E402
 from etoro_monitor.render import (  # noqa: E402
+    en_madrid,
     format_number,
     format_weight,
     render_operation,
@@ -208,19 +210,40 @@ def test_el_bloque_de_operacion_no_lleva_unidades_ni_precios_ni_fechas():
 def test_el_mensaje_completo_lleva_la_fecha_del_aviso():
     changes = diff_snapshots(snap(), snap(asset(1002, 1.0)))
     texto = render_user_changes(
-        USER, changes, instrument_labels=LABELS, timestamp="02/10/2026 12:00 UTC"
+        USER, changes, instrument_labels=LABELS, timestamp="02/10/2026 14:00"
     )
-    assert "02/10/2026 12:00 UTC" in texto
+    assert "02/10/2026 14:00" in texto
 
 
-def test_cabecera_resume_el_total():
+def test_cabecera_solo_lleva_el_nombre_y_la_fecha():
+    """Pedido el 20/10: fuera "ha movido su cartera" y el recuento."""
     changes = diff_snapshots(snap(), snap(asset(1002, 1.0), asset(5712, 1.0)))
     texto = render_user_changes(
         USER, changes, instrument_labels={1002: "A", 5712: "B"}
     )
-    assert "2 operaciones en 2 activos" in texto
-    assert "Usuario Ejemplo" in texto
+    assert "<b>Usuario Ejemplo</b>" in texto
+    assert "ha movido su cartera" not in texto
+    assert "operaciones en" not in texto
+    assert "activos" not in texto
     assert "https://www.etoro.com/people/usuarioejemplo/portfolio" in texto
+
+
+def test_la_hora_del_mensaje_es_de_madrid():
+    """18:06 UTC en octubre son las 20:06 en Madrid; en enero, las 19:06."""
+    verano = datetime(2026, 10, 20, 18, 6, tzinfo=timezone.utc)
+    assert en_madrid(verano).strftime("%d/%m/%Y %H:%M") == "20/10/2026 20:06"
+
+    invierno = datetime(2026, 1, 15, 18, 6, tzinfo=timezone.utc)
+    assert en_madrid(invierno).strftime("%d/%m/%Y %H:%M") == "15/01/2026 19:06"
+
+
+def test_la_hora_del_mensaje_no_lleva_utc():
+    texto = render_user_changes(
+        USER,
+        diff_snapshots(snap(), snap(asset(1002, 1.0))),
+        instrument_labels=LABELS,
+    )
+    assert "UTC" not in texto
 
 
 def test_el_mensaje_no_lleva_linea_de_ajuste_ni_peso_con_etiqueta():

@@ -51,8 +51,8 @@ usa **solo como contexto** en el mensaje, nunca para decidir si hubo operación.
 Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
 
 ```
-🔔 Usuario Ejemplo ha movido su cartera
-02/10/2026 16:03 UTC · 4 operaciones en 3 activos
+🔔 Usuario Ejemplo
+02/10/2026 18:03
 
 🟢 COMPRA · Apple (AAPL)  (nueva en cartera)
    1,20%
@@ -63,6 +63,10 @@ Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
 🔴 CIERRA CORTO · EUR/USD
    0,71%
 ```
+
+La cabecera lleva **quién** y **cuándo**, en hora de Madrid (cambio de hora
+incluido), y nada más: ni "ha movido su cartera" ni el recuento de operaciones.
+Para saber cuántas son, están los bloques.
 
 La diferencia entre **COMPRA** y **COMPRA PARCIAL** sale del activo: si no estaba
 en la cartera es una **compra**; si ya estaba y acaba con más unidades, una
@@ -122,8 +126,8 @@ de la cartera, sí.
   operaciones reales: el ajuste no se menciona (queda en el log).
 
 ```
-🔔 Usuario Ejemplo ha movido su cartera
-19/10/2026 13:41 UTC · 10 operaciones en 6 activos
+🔔 Usuario Ejemplo
+19/10/2026 15:41
 
 🟢 COMPRA PARCIAL · Micron (MU)
    7,79%
