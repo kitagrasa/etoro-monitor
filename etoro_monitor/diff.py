@@ -165,8 +165,6 @@ ADJUSTMENT_MIN_POSITIONS = 4
 ADJUSTMENT_SHARE = 0.8
 # Tolerancia al comparar factores (0,001 = una décima de punto porcentual).
 ADJUSTMENT_TOLERANCE = 0.001
-# Cuánto tiene que bajar como mínimo el factor para considerarlo un ajuste.
-ADJUSTMENT_MIN_DROP = 0.0005
 # Qué fracción de TODA la cartera tiene que entrar en el ajuste. Es lo que
 # distingue un ajuste de cartera (retirada, rebalanceo) de vender un 10% de un
 # solo activo con muchas posiciones: lo segundo puede ser la mitad de las
@@ -195,6 +193,10 @@ def split_adjustment(
     * que toque al menos dos activos distintos (si la cartera solo tiene uno,
       no hay nada que repartir y se omite esta condición).
 
+    No hay un tamaño mínimo: un recorte del 0,05% en toda la cartera es tan
+    ajuste como uno del 0,30%. Lo que decide es que sea proporcional y que
+    coja a la cartera entera, no cuánto baja.
+
     Devuelve `(operaciones, ajuste)`:
 
     * si no hay ajuste, `(changes, None)`;
@@ -219,7 +221,12 @@ def split_adjustment(
     factor = statistics.median(ratio for _, ratio in candidatos)
     # Solo tiene sentido para bajadas: una subida proporcional es una compra
     # (o algo raro), y no queremos silenciarla.
-    if factor >= 1.0 - ADJUSTMENT_MIN_DROP:
+    #
+    # No hay un mínimo de bajada: da igual que el factor sea 0,997 (lo que se
+    # vio el 19/10) o 0,9995 (el 20/10, un recorte del 0,05% en las 36
+    # posiciones de una cartera). Antes había un mínimo del 0,05% y estos
+    # recortes pequeños se colaban como una venta parcial por posición.
+    if factor >= 1.0:
         return changes, None
 
     dentro = [

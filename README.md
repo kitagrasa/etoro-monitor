@@ -90,6 +90,12 @@ bajada, lo trata como ajuste proporcional. Las operaciones que no encajan en ese
 factor (una venta real de otro tamaño, una compra, un cierre) se avisan con
 normalidad.
 
+El **tamaño de la bajada no importa**: un 0,30% y un 0,05% son igual de ajuste.
+Lo que decide es que sea proporcional y que coja a la cartera entera. (El
+20/10/2026 eToro recortó un 0,05% de las 36 posiciones de una cartera y, con un
+mínimo del 0,05% que se exigía entonces, se avisaron como 10 ventas parciales de
+0,01 puntos de peso. Ya no hay mínimo.)
+
 Para no confundir una venta grande de **un solo activo** con un ajuste, se
 exigen dos cosas más:
 

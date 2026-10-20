@@ -361,3 +361,86 @@ def test_un_ajuste_en_una_cartera_de_un_solo_activo_si_se_resume():
     )
     assert ajuste is not None
     assert operaciones == []
+
+
+def test_un_recorte_minusculo_de_toda_la_cartera_es_un_ajuste():
+    """20/10/2026: un recorte del 0,05% en toda la cartera no son ventas.
+
+    Había un mínimo de bajada del 0,05% y este recorte caía justo ahí: se
+    colaba y salían 36 "ventas parciales" de 0,01 puntos de peso cada una.
+    El tamaño de la bajada no dice nada; lo que dice algo es que sea
+    proporcional y que coja a la cartera entera.
+    """
+    changes = diff_snapshots(snap(_muchas(1.0)), snap(_muchas(0.9995)))
+    assert len(changes) == 12
+
+    operaciones, ajuste = split_adjustment(
+        changes, total_positions=12, total_assets=1
+    )
+
+    assert operaciones == []
+    assert ajuste is not None
+    assert ajuste.positions == 12
+    assert abs(ajuste.percentage - 0.05) < 1e-9
+
+
+def test_un_recorte_minusculo_no_tapa_la_venta_de_verdad():
+    """El caso completo del 20/10/2026: solo se avisa de la venta real.
+
+    La cartera tenía 11 activos y 36 posiciones. eToro recortó el 0,05% de
+    todas y, en la misma pasada, el dueño vendió el 43,5% de un activo (una de
+    sus posiciones desapareció del todo). De ahí solo hay que avisar de esa
+    venta: las otras 28 posiciones son el recorte.
+    """
+    recorte = 0.9995
+    venta = 0.565
+    # 10 activos, 28 posiciones en total (las del recorte).
+    cuentas = [4, 3, 3, 3, 3, 3, 3, 3, 2, 1]
+
+    def antes():
+        activos = [
+            asset(
+                iid,
+                1.0,
+                extra={iid * 100 + i: 1.0 for i in range(cuantas - 1)},
+            )
+            for iid, cuantas in zip(range(1002, 1012), cuentas)
+        ]
+        # El activo de la venta: 8 posiciones, una de ellas desaparece.
+        activos.append(asset(11230, 1.0, extra={1123000: 0.02, 1123001: 1.0,
+                                                1123002: 1.0, 1123003: 1.0,
+                                                1123004: 1.0, 1123005: 1.0,
+                                                1123006: 1.0}))
+        return snap(*activos)
+
+    def despues():
+        activos = [
+            asset(
+                iid,
+                recorte,
+                extra={iid * 100 + i: recorte for i in range(cuantas - 1)},
+            )
+            for iid, cuantas in zip(range(1002, 1012), cuentas)
+        ]
+        activos.append(asset(11230, venta, extra={1123001: venta,
+                                                  1123002: venta,
+                                                  1123003: venta,
+                                                  1123004: venta,
+                                                  1123005: venta,
+                                                  1123006: venta}))
+        return snap(*activos)
+
+    changes = diff_snapshots(antes(), despues())
+    assert len(changes) == 36
+
+    operaciones, ajuste = split_adjustment(
+        changes, total_positions=36, total_assets=11
+    )
+
+    assert ajuste is not None
+    assert ajuste.positions == 28
+    # Lo único que queda es la venta de verdad: sus 7 posiciones reducidas y
+    # la que se cerró.
+    assert len(operaciones) == 8
+    assert {c.instrument_id for c in operaciones} == {11230}
+

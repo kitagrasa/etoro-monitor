@@ -327,6 +327,25 @@ def test_un_ajuste_proporcional_solo_no_se_avisa(tmp_path):
     assert abs(reporte.adjustment.percentage - 0.3) < 1e-9
 
 
+def test_un_ajuste_del_0_05_solo_tampoco_se_avisa(tmp_path):
+    """El recorte del 20/10/2026: 0,05% en todas las posiciones.
+
+    Salían 10 "ventas parciales" de 0,01 puntos de peso. No hay nada que
+    contar: es un ajuste, no una operación.
+    """
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada(state, avisos, 1.0)  # línea base
+    avisos.clear()
+
+    reporte = _pasada(state, avisos, 0.9995)
+
+    assert avisos == []
+    assert reporte.adjustment is not None
+    assert reporte.adjustment.positions == 6
+    assert abs(reporte.adjustment.percentage - 0.05) < 1e-9
+
+
 def test_un_ajuste_con_una_compra_real_avisa_solo_la_compra(tmp_path):
     """El ajuste no se menciona; la compra real se avisa."""
     state = State(path=tmp_path / "state.json")
