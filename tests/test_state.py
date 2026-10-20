@@ -158,6 +158,8 @@ def test_no_hay_campos_que_crezcan_sin_limite(tmp_path):
         "avatar_url",
         "baseline_sent",
         "needs_positions_baseline",
+        # Marca de agua del histórico de cierres (una fecha UTC, no una lista).
+        "history_since",
         "assets",
     }, f"el estado ha ganado campos: {campos}"
 

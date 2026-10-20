@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Callable, Optional, Sequence
 
 from .client import (
@@ -15,11 +16,17 @@ from .client import (
 )
 from .cooldown import CooldownStore, error_key
 from .diff import diff_snapshots, split_adjustment
+from .historial import arbitrar, es_pequena
 from .models import Adjustment, Asset, Change, EtoroUser, Instrument, Position, Snapshot
 from .render import render_baseline, render_problem, render_user_changes
 from .state import RuntimeState, State
 
 log = logging.getLogger(__name__)
+
+
+def _ahora_utc() -> str:
+    """Instante actual en UTC con la forma que quiere el histórico."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _es_nombre_de_relleno(nombre: str) -> bool:
@@ -37,6 +44,9 @@ class UserReport:
     requests: int = 0
     # Ajuste proporcional detectado en esta pasada (no es una operación).
     adjustment: Optional[Adjustment] = None
+    # Cierres por activo que dijo el histórico en esta pasada. `None` si no se
+    # consultó (no hacía falta) o si no contestó.
+    closes: Optional[dict[int, int]] = None
 
 
 class Monitor:
@@ -60,6 +70,9 @@ class Monitor:
         self.notify_errors = notify_errors
         self.error_cooldown_minutes = error_cooldown_minutes
         self.quiet_baseline = quiet_baseline
+        # Si el histórico falla de forma rara (bloqueo), no se le insiste en la
+        # misma pasada: un reintento por usuario solo empeoraría el bloqueo.
+        self._historico_descartado = False
 
     # ------------------------------------------------------------------ #
     # Errores
@@ -93,6 +106,7 @@ class Monitor:
     # ------------------------------------------------------------------ #
     def run(self, usernames: Sequence[str], *, prune: bool = True) -> list[UserReport]:
         reports: list[UserReport] = []
+        self._historico_descartado = False
         for username in usernames:
             try:
                 report = self._process_user(username)
@@ -136,6 +150,10 @@ class Monitor:
         user = self._resolve(username)
         log.info("%s -> CID %s", user.username, user.real_cid)
 
+        # Instante de la foto. Es la marca de agua del histórico: la próxima
+        # pasada preguntará por los cierres posteriores a este momento, así que
+        # la ventana del histórico y la del diff son la misma.
+        foto = _ahora_utc()
         snapshot = self.fetch_snapshot(user)
 
         previous_state = self.state.user(user.slug)
@@ -150,6 +168,7 @@ class Monitor:
 
         changes: list[Change] = []
         adjustment: Optional[Adjustment] = None
+        closes: Optional[dict[int, int]] = None
         if (
             previous_state is not None
             and previous_state.assets
@@ -161,12 +180,21 @@ class Monitor:
                 total_positions=sum(len(a.positions) for a in previous.assets.values()),
                 total_assets=len(previous.instrument_ids),
             )
+            # El histórico solo se consulta si al detector de ajustes le ha
+            # quedado alguna bajada pequeña sin explicar: es el único caso en el
+            # que puede cambiar una decisión. Así, en una pasada normal de
+            # compras (o de ventas grandes) no se gasta ni una petición de más.
+            if any(es_pequena(change) for change in changes):
+                changes, closes = self._arbitrar_ventas(
+                    changes, user, previous_state.history_since
+                )
 
         # El estado guarda SOLO la foto actual: se asigna, no se acumula. Lo
         # que ya no está en la cartera desaparece del fichero.
         new_state = self.state.upsert_user(user)
         new_state.assets = dict(snapshot.assets)
         new_state.needs_positions_baseline = False
+        new_state.history_since = foto
 
         labels = {
             iid: self.state.instrument_label(iid) for iid in snapshot.instrument_ids
@@ -214,7 +242,72 @@ class Monitor:
             baseline=is_baseline,
             requests=self.client.request_count - started,
             adjustment=adjustment,
+            closes=closes,
         )
+
+    # ------------------------------------------------------------------ #
+    def _arbitrar_ventas(
+        self,
+        changes: list[Change],
+        user: EtoroUser,
+        since: Optional[str],
+    ) -> tuple[list[Change], Optional[dict[int, int]]]:
+        """Quita las bajadas pequeñas que el histórico de cierres desmiente.
+
+        Devuelve `(cambios, cierres)`. Se llama solo cuando hay alguna bajada
+        pequeña, y una única petición cubre toda la cartera.
+
+        Si no hay marca de agua (estado recién migrado) o el histórico no
+        contesta, se devuelve lo mismo que entró: se decide como antes. El
+        histórico nunca puede tumbar una pasada ni callar una compra.
+        """
+        if not since:
+            log.info(
+                "%s: sin marca de agua del histórico; se decide como antes",
+                user.username,
+            )
+            return changes, None
+
+        if self._historico_descartado:
+            return changes, None
+
+        try:
+            cierres = self.client.get_history_closes(user.real_cid, since)
+        except Blocked as exc:
+            # Un bloqueo no se reintenta por usuario: sería peor. Se deja de
+            # pedir el histórico en esta pasada (el resto de peticiones ya
+            # avisarán si eToro está bloqueando de verdad).
+            self._historico_descartado = True
+            log.warning(
+                "%s: histórico bloqueado (%s); no se vuelve a pedir en esta pasada",
+                user.username,
+                exc,
+            )
+            return changes, None
+        except EtoroError as exc:
+            log.warning(
+                "%s: histórico de cierres no disponible (%s); se decide como antes",
+                user.username,
+                exc,
+            )
+            return changes, None
+
+        log.info(
+            "%s: histórico desde %s -> %s",
+            user.username,
+            since,
+            ", ".join(f"{iid}x{n}" for iid, n in sorted(cierres.items()))
+            or "sin cierres",
+        )
+        avisos = arbitrar(changes, cierres)
+        if len(avisos) != len(changes):
+            log.info(
+                "%s: %d bajada(s) pequeña(s) descartadas: el histórico no tiene "
+                "ningún cierre que las respalde",
+                user.username,
+                len(changes) - len(avisos),
+            )
+        return avisos, cierres
 
     # ------------------------------------------------------------------ #
     def _resolve(self, username: str) -> EtoroUser:

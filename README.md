@@ -126,10 +126,43 @@ Los mensajes son deliberadamente escuetos: cada verbo sale **una vez** (sin
 porcentaje, o `antes → después` si cambió) y no se añaden notas como
 "cierra todo el activo".
 
-Es una heurística (eToro no publica el histórico de operaciones), pero basada en
-un modelo: un solo factor explica casi todos los cambios. Los umbrales que usa
-(`diff.py`) son de consistencia (cuántas posiciones comparten el factor y qué
-parte de la cartera cubren), no de tamaño de la operación.
+Es una heurística, pero basada en un modelo: un solo factor explica casi todos
+los cambios. Los umbrales que usa (`diff.py`) son de consistencia (cuántas
+posiciones comparten el factor y qué parte de la cartera cubren), no de tamaño de
+la operación.
+
+### El histórico de cierres: la segunda opinión
+
+Un ajuste se nota cuando **todas** las posiciones bajan lo mismo. Un recorte
+desigual (cada posición un poco distinto) ya no se puede distinguir de varias
+ventas pequeñas mirando solo las unidades. Para eso está el histórico público de
+cierres de eToro:
+
+```
+/sapi/trade-data-real/history/public/portfolios/aggregated/breakdown?cid=…&startTime=…
+```
+
+Devuelve **qué activos han cerrado posiciones y cuántas** desde una fecha, para
+toda la cartera de una vez (**una sola petición**, no una por activo). Y lo que
+lo hace útil: un recorte de eToro **no deja ningún apunte** ahí, y una venta sí.
+
+El monitor lo usa como árbitro, y solo cuando hace falta:
+
+* si el detector de ajustes ya explica las bajadas, **no se consulta** (cero
+  peticiones de más);
+* si quedan bajadas pequeñas sueltas (menos del **1%** de la posición), se
+  consulta una vez y se descartan las que no tengan ningún cierre que las
+  respalde;
+* **una bajada grande no se calla nunca**, aunque el histórico no la respalde:
+  si eToro no registrara los cierres parciales, mejor un aviso de más que uno de
+  menos;
+* las compras y las posiciones que desaparecen no se tocan: el histórico solo
+  habla de cierres;
+* si el histórico no contesta (o el estado es antiguo y aún no hay marca de
+  agua), se decide como siempre. Un fallo suyo **no puede tumbar la pasada**.
+
+El 20/10/2026, con 36 posiciones recortadas un 0,05%, el histórico tenía un único
+cierre: el de Gulf Keystone. Ese es exactamente el que había que avisar.
 
 
 ---
@@ -550,10 +583,12 @@ una compra abre una posición nueva o amplía una que ya existía**. El total
 (`units`) se guarda también, pero es la suma de las posiciones.
 
 **No se guarda**: fechas de apertura, precios de entrada, ganancias, valor de
-la cartera ni el apalancamiento. Con una cartera real de 66 activos y 228
-operaciones vivas, el estado ocupa unos **43 KB** (antes, sin las posiciones y
-con identificadores largos de posición, ocupaba **61,7 KB**; la primera
-versión que dejó de guardarlos bajó a ~18 KB).
+la cartera ni el apalancamiento. En cada persona sí hay un campo
+`history_since`: la marca de agua (una fecha UTC) de hasta cuándo se ha mirado
+el histórico de cierres, para no volver a pedir lo mismo cada pasada. Con una
+cartera real de 66 activos y 228 operaciones vivas, el estado ocupa unos
+**43 KB** (antes, sin las posiciones y con identificadores largos de posición,
+ocupaba **61,7 KB**; la primera versión que dejó de guardarlos bajó a ~18 KB).
 
 > **Nota honesta sobre el tamaño:** guardar el identificador de cada operación
 > es lo que permite distinguir "ha comprado algo nuevo" de "ha metido más
@@ -661,10 +696,12 @@ etoro-monitor-estado/
 | `/api/logininfo/v1.1/users/<usuario>` | nombre de usuario → `CID` |
 | `/sapi/trade-data-real/live/public/portfolios?cid=` | activos, lado y peso |
 | `/sapi/trade-data-real/live/public/positions?cid=&instrumentId=` | unidades de cada activo |
+| `/sapi/trade-data-real/history/public/portfolios/aggregated/breakdown?cid=&startTime=` | qué activos han cerrado posiciones (solo si hace falta) |
 | `/sapi/instrumentsmetadata/V1.1/instruments/<id>` | nombre y ticker |
 
-**Coste:** ~1 petición por activo (unos 30 por persona con cartera grande). Es
-el precio de distinguir una operación de un movimiento del mercado.
+**Coste:** ~1 petición por activo y persona (unos 30 con cartera grande), más
+**una sola** del histórico y solo en las pasadas que lo necesitan. Es el precio de
+distinguir una operación de un movimiento del mercado.
 
 ---
 

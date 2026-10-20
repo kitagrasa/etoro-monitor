@@ -53,10 +53,10 @@ POSICIONES_6 = {
 
 
 class FakeResponse:
-    def __init__(self, body):
-        self.status_code = 200
-        self.text = json.dumps(body)
-        self.headers = {"content-type": "application/json"}
+    def __init__(self, body, *, status: int = 200, content_type: str = "application/json"):
+        self.status_code = status
+        self.text = body if isinstance(body, str) else json.dumps(body)
+        self.headers = {"content-type": content_type}
 
     def json(self):
         return json.loads(self.text)
@@ -67,12 +67,19 @@ class FakeSession:
 
     Por defecto usa la cartera y las posiciones de arriba; se pueden cambiar
     pasando `cartera` y/o `posiciones` (un diccionario activo -> lista).
+
+    `cierres` es lo que contestará el histórico de cierres (lista de grupos tal
+    cual la devuelve eToro) y `historico_falla` permite simular que no contesta.
     """
 
-    def __init__(self, posiciones=None, cartera=None):
+    def __init__(self, posiciones=None, cartera=None, cierres=None, historico_falla=None):
         self.headers = {}
         self.llamadas: list[str] = []
+        self.historico_llamadas = 0
+        self.historico_params: list[dict] = []
         self.cartera = CARTERA if cartera is None else cartera
+        self.cierres = cierres if cierres is not None else []
+        self.historico_falla = historico_falla
         self.posiciones = (
             {1002: POSICIONES_1002["PublicPositions"], 6: POSICIONES_6["PublicPositions"]}
             if posiciones is None
@@ -84,6 +91,14 @@ class FakeSession:
         params = params or {}
         if "logininfo" in url:
             return FakeResponse(USUARIO)
+        if "history/public" in url:
+            self.historico_llamadas += 1
+            self.historico_params.append(dict(params))
+            if self.historico_falla == "caido":
+                return FakeResponse({"error": "no"}, status=404)
+            if self.historico_falla == "bloqueado":
+                return FakeResponse("Just a moment...", content_type="text/html")
+            return FakeResponse({"AggregatedInstrumentHistories": self.cierres})
         if "public/portfolios" in url:
             return FakeResponse(self.cartera)
         if "public/positions" in url:
@@ -359,5 +374,164 @@ def test_un_ajuste_con_una_compra_real_avisa_solo_la_compra(tmp_path):
     assert "COMPRA PARCIAL" in avisos[0]
     assert "Reducción proporcional" not in avisos[0]
     assert len(reporte.changes) == 1
+
+
+# ---------------------------------------------------------------------- #
+# El histórico de cierres como árbitro
+# ---------------------------------------------------------------------- #
+# Cinco activos con una posición cada uno. Cada pasada les pone las unidades
+# que diga `unidades`, así se puede simular un recorte DESIGUAL (el que el
+# detector de ajustes no puede cazar) sin tocar el caso del ajuste uniforme.
+ACTIVOS_ARBITRO = (1002, 1003, 1004, 1005, 1006)
+UNA = {iid: 1.0 for iid in ACTIVOS_ARBITRO}
+# Del 0,1% al 0,9%: cada activo una cosa distinta, así que no hay ajuste.
+RECORTE_DESIGUAL = {1002: 0.999, 1003: 0.997, 1004: 0.995, 1005: 0.993, 1006: 0.991}
+
+
+def _cartera_arbitro(unidades):
+    cartera = []
+    posiciones = {}
+    for iid in ACTIVOS_ARBITRO:
+        cartera.append({"InstrumentID": iid, "Direction": "Buy", "Invested": 5.0})
+        posiciones[iid] = [
+            {"PositionID": iid * 10, "IsBuy": True, "Amount": unidades[iid]}
+        ]
+    return {"AggregatedPositions": cartera}, posiciones
+
+
+def _pasada_arbitro(state, avisos, unidades, *, cierres=None, falla=None):
+    cartera, posiciones = _cartera_arbitro(unidades)
+    session = FakeSession(
+        cartera=cartera,
+        posiciones=posiciones,
+        cierres=cierres,
+        historico_falla=falla,
+    )
+    client = EtoroClient(delay=0.0, session=session)
+    reporte = Monitor(client, state, notify=avisos.append).run(["UsuarioEjemplo"])[0]
+    client.close()
+    return reporte, session
+
+
+def test_un_recorte_desigual_lo_resuelve_el_historico(tmp_path):
+    """Lo que el detector de ajustes no puede cazar lo caza el histórico.
+
+    Cinco recortes de tamaños distintos (0,1% ... 0,9%): la heurística no puede
+    llamarlo ajuste, pero el histórico dice que no ha cerrado nada, así que no
+    son ventas.
+    """
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)  # línea base
+    avisos.clear()
+
+    reporte, session = _pasada_arbitro(state, avisos, RECORTE_DESIGUAL)
+
+    assert session.historico_llamadas == 1, "el histórico se pide una sola vez"
+    assert reporte.closes == {}
+    assert reporte.changes == []
+    assert avisos == []
+    assert reporte.adjustment is None
+
+
+def test_si_el_historico_no_contesta_se_decide_como_antes(tmp_path):
+    """El histórico no puede tumbar una pasada: se avisa como hasta ahora."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)
+    avisos.clear()
+
+    reporte, session = _pasada_arbitro(state, avisos, RECORTE_DESIGUAL, falla="caido")
+
+    assert session.historico_llamadas == 1
+    assert reporte.closes is None
+    assert len(reporte.changes) == 5
+    assert len(avisos) == 1
+    assert "VENTA PARCIAL" in avisos[0]
+
+
+def test_si_el_historico_esta_bloqueado_tampoco_rompe_la_pasada(tmp_path):
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)
+    avisos.clear()
+
+    reporte, session = _pasada_arbitro(
+        state, avisos, RECORTE_DESIGUAL, falla="bloqueado"
+    )
+
+    assert session.historico_llamadas == 1
+    assert reporte.closes is None
+    assert len(avisos) == 1
+
+
+def test_un_cierre_en_el_historico_respalda_la_bajada(tmp_path):
+    """Si el histórico dice que ese activo ha cerrado algo, la bajada es venta."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)
+    avisos.clear()
+
+    reporte, session = _pasada_arbitro(
+        state,
+        avisos,
+        RECORTE_DESIGUAL,
+        cierres=[{"InstrumentID": 1004, "TotalNumberOfPositions": 1}],
+    )
+
+    assert reporte.closes == {1004: 1}
+    assert [c.instrument_id for c in reporte.changes] == [1004]
+    assert len(avisos) == 1
+
+
+def test_sin_bajadas_no_se_consulta_el_historico(tmp_path):
+    """Una pasada de compras no gasta ni una petición en el histórico."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)
+    avisos.clear()
+
+    reporte, session = _pasada_arbitro(
+        state, avisos, {**UNA, 1002: 1.5}, cierres=[]
+    )
+
+    assert session.historico_llamadas == 0
+    assert reporte.closes is None
+    assert len(avisos) == 1
+    assert "COMPRA PARCIAL" in avisos[0]
+
+
+def test_la_marca_de_agua_se_guarda_y_es_la_que_se_usa(tmp_path):
+    """El histórico se pide "desde la foto anterior", no desde el principio."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)  # línea base
+
+    primero = state.user("usuarioejemplo").history_since
+    assert primero is not None
+
+    avisos.clear()
+    _, session = _pasada_arbitro(state, avisos, RECORTE_DESIGUAL)
+
+    assert session.historico_params[0]["startTime"] == primero
+    segundo = state.user("usuarioejemplo").history_since
+    assert segundo is not None and segundo >= primero
+
+
+def test_un_estado_sin_marca_de_agua_no_se_calla_nada(tmp_path):
+    """Estado de antes de este cambio: hay posiciones pero no marca de agua."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)
+    state.user("usuarioejemplo").history_since = None  # como un estado viejo
+    avisos.clear()
+
+    reporte, session = _pasada_arbitro(state, avisos, RECORTE_DESIGUAL)
+
+    assert session.historico_llamadas == 0
+    assert len(reporte.changes) == 5
+    assert len(avisos) == 1
+    # Y se aprovecha para dejar puesta la marca de agua.
+    assert state.user("usuarioejemplo").history_since is not None
 
 

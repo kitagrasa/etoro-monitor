@@ -10,6 +10,8 @@ Todo lo que hace este módulo es lo mismo que hace tu navegador cuando abres
     GET /sapi/trade-data-real/live/public/portfolios/exposure     -> % de cada activo
     GET /sapi/trade-data-real/live/public/positions?cid&instrumentId
                                                                   -> cada posición abierta
+    GET /sapi/trade-data-real/history/public/portfolios/aggregated/breakdown?cid&startTime
+                                                                  -> cierres por activo
     GET /sapi/instrumentsmetadata/V1.1/instruments/<id>           -> nombre del activo
 
 No hay login, ni cookies de sesión, ni API key, ni KYC. Nada de esto toca
@@ -287,6 +289,43 @@ class EtoroClient:
             private_ok=True,
         )
         return data or {}
+
+    def get_history_closes(self, cid: int, since: str) -> dict[int, int]:
+        """Cuántas posiciones se han cerrado por activo desde `since`.
+
+        Es el histórico público de cierres, agregado por cartera: **una sola
+        petición para todos los activos**, no una por activo. Devuelve
+        `{instrument_id: número de cierres}`; los activos sin cierres no
+        aparecen.
+
+        `since` va en UTC ISO (`2026-10-20T13:41:00Z`). Ojo: eToro solo filtra
+        por `startTime`; su `endTime` se ignora (comprobado el 20/10/2026), así
+        que la ventana la cierra el monitor con su marca de agua.
+
+        No confundir con el detalle por activo
+        (`/history/public/positions?instrumentId=`), que daría la hora exacta de
+        cada cierre a cambio de una petición por activo. No lo usamos.
+        """
+        data = self._get_json(
+            "/sapi/trade-data-real/history/public/portfolios/aggregated/breakdown",
+            {
+                "cid": cid,
+                "startTime": since,
+                "pageNumber": 1,
+                "itemsPerPage": 50,
+            },
+        )
+        cierres: dict[int, int] = {}
+        for grupo in (data or {}).get("AggregatedInstrumentHistories") or []:
+            try:
+                instrument_id = int(grupo["InstrumentID"])
+                cuantos = int(grupo.get("TotalNumberOfPositions") or 0)
+            except (KeyError, TypeError, ValueError):
+                log.warning("Grupo de histórico ilegible: %s", grupo)
+                continue
+            if cuantos > 0:
+                cierres[instrument_id] = cierres.get(instrument_id, 0) + cuantos
+        return cierres
 
     def get_instrument(self, instrument_id: int) -> Optional[dict[str, Any]]:
         """Metadatos de un activo (nombre legible y ticker)."""

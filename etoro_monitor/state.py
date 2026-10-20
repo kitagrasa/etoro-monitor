@@ -4,7 +4,9 @@
 por cada activo, sus posiciones abiertas (identificador y unidades), su
 dirección (largo/corto) y su peso como contexto. El identificador de cada
 posición es lo que permite distinguir una compra nueva de una compra parcial.
-No guarda fechas, ni precios, ni ganancias.
+No guarda fechas de las operaciones, ni precios, ni ganancias: solo
+`history_since`, la marca de agua de hasta dónde se ha mirado el histórico de
+cierres.
 
 Hay tres ficheros, con papeles distintos:
 
@@ -62,6 +64,11 @@ class UserState:
     # decir de qué posiciones venían. No se puede comparar con precisión, así
     # que la primera pasada solo vuelve a tomar la foto.
     needs_positions_baseline: bool = False
+    # Instante (UTC, ISO) de la foto anterior: hasta ahí se han mirado los
+    # cierres en el histórico. Sirve para preguntar solo por lo nuevo en vez de
+    # releer meses de operaciones. Si falta (estado viejo), la pasada se
+    # resuelve sin histórico, como siempre.
+    history_since: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -75,6 +82,7 @@ class UserState:
             "avatar_url": self.user.avatar_url,
             "baseline_sent": self.baseline_sent,
             "needs_positions_baseline": self.needs_positions_baseline,
+            "history_since": self.history_since,
             "assets": {key: asset.to_dict() for key, asset in sorted(self.assets.items())},
         }
 
@@ -107,6 +115,7 @@ class UserState:
             assets=assets,
             baseline_sent=bool(data.get("baseline_sent")),
             needs_positions_baseline=heredado,
+            history_since=data.get("history_since") or None,
         )
 
 
