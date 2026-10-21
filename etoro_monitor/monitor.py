@@ -207,8 +207,17 @@ class Monitor:
         new_state.needs_positions_baseline = False
         new_state.history_since = foto
 
+        # Un activo que ha desaparecido (VENTA) ya no está en la foto, así que
+        # su nombre solo puede venir de la caché. Si no está (pasó el
+        # 21/10/2026: el aviso decía "Instrumento 1118" en vez de Berkshire),
+        # se pide ahora: una petición y queda cacheado para siempre.
+        con_cambios = {change.instrument_id for change in changes}
+        for instrument_id in con_cambios:
+            self._ensure_instrument(instrument_id)
+
         labels = {
-            iid: self.state.instrument_label(iid) for iid in snapshot.instrument_ids
+            iid: self.state.instrument_label(iid)
+            for iid in snapshot.instrument_ids | con_cambios
         }
 
         if is_baseline:

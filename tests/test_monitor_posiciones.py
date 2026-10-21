@@ -299,6 +299,52 @@ def test_un_nombre_de_relleno_ya_cacheado_se_reintenta(tmp_path):
     assert state.instruments[8804].label == "Sandisk Corp/DE (SNDK)"
 
 
+def test_un_activo_que_desaparece_se_avisa_con_su_nombre(tmp_path):
+    """21/10/2026: se vendió Berkshire entera y el aviso decía "Instrumento 1118".
+
+    Un activo que se vende entero ya no está en la foto, así que su nombre solo
+    puede venir de la caché. Si falta (o es el relleno de un estado viejo), se
+    pide al catálogo antes de redactar el aviso.
+    """
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)  # línea base: cachea los cinco nombres
+    avisos.clear()
+
+    vendido = ACTIVOS_ARBITRO[-1]
+    state.instruments.pop(vendido, None)  # simula el estado al que le faltaba
+
+    cartera, posiciones = _cartera_de({iid: 1.0 for iid in ACTIVOS_ARBITRO[:-1]})
+    session = FakeSession(cartera=cartera, posiciones=posiciones)
+    client = EtoroClient(delay=0.0, session=session)
+    reporte = Monitor(client, state, notify=avisos.append).run(["UsuarioEjemplo"])[0]
+    client.close()
+
+    assert [c.kind for c in reporte.changes] == ["closed"]
+    assert "Activo" in avisos[0]
+    assert "Instrumento" not in avisos[0], avisos[0]
+    assert any(url.endswith(f"/{vendido}") for url in session.llamadas)
+    assert state.instrument_label(vendido) == "Activo"
+
+
+def test_si_el_nombre_del_que_desaparece_ya_esta_no_se_pide(tmp_path):
+    """Y si ya estaba cacheado, no se gasta ninguna petición de más."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)
+    avisos.clear()
+
+    vendido = ACTIVOS_ARBITRO[-1]
+    cartera, posiciones = _cartera_de({iid: 1.0 for iid in ACTIVOS_ARBITRO[:-1]})
+    session = FakeSession(cartera=cartera, posiciones=posiciones)
+    client = EtoroClient(delay=0.0, session=session)
+    Monitor(client, state, notify=avisos.append).run(["UsuarioEjemplo"])
+    client.close()
+
+    assert not any(url.endswith(f"/{vendido}") for url in session.llamadas)
+    assert "Instrumento" not in avisos[0]
+
+
 # ---------------------------------------------------------------------- #
 # Ajustes proporcionales de punta a punta
 # ---------------------------------------------------------------------- #
