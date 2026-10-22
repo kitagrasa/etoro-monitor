@@ -56,13 +56,26 @@ Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
 
 🟢 COMPRA · Apple (AAPL)  (nueva en cartera)
    1,20%
-🟢 COMPRA PARCIAL · Alphabet (GOOG)
+➕ COMPRA PARCIAL · Alphabet (GOOG)
    9,00%
-🔻 VENTA PARCIAL · Tesla (TSLA)
+➖ VENTA PARCIAL · Tesla (TSLA)
    4,20% → 2,10%
 🔴 CIERRA CORTO · EUR/USD
    0,71%
 ```
+
+Los iconos dicen dos cosas a la vez: **la forma, si la operación es total o
+parcial**, y **el color, si es compra o venta**.
+
+| | Compra | Venta |
+|---|---|---|
+| **Total** (círculo) | 🟢 COMPRA | 🔴 VENTA |
+| **Parcial** (`+`/`−`) | ➕ COMPRA PARCIAL | ➖ VENTA PARCIAL |
+
+Las parciales son signos y no triángulos porque **no existe un emoji de
+triángulo verde**: los triángulos con color son 🔺 y 🔻, los dos rojos, y un
+triángulo rojo para una compra confundiría. ➕ y ➖ sí son verdes y rojos, y se
+leen como lo que son: añadir o quitar unidades.
 
 La cabecera lleva **quién** y **cuándo**, en hora de Madrid (cambio de hora
 incluido), y nada más: ni "ha movido su cartera" ni el recuento de operaciones.
@@ -129,7 +142,7 @@ de la cartera, sí.
 🔔 Usuario Ejemplo
 19/10/2026 15:41
 
-🟢 COMPRA PARCIAL · Micron (MU)
+➕ COMPRA PARCIAL · Micron (MU)
    7,79%
 🔴 VENTA · Sandisk (SNDK)
    5,36%

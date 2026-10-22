@@ -65,6 +65,50 @@ def test_formato_espanol():
 
 
 # ---------------------------------------------------------------------- #
+# Iconos: forma = total/parcial, color = compra/venta
+# ---------------------------------------------------------------------- #
+def test_iconos_circulo_para_las_totales_y_signo_para_las_parciales():
+    """Pedido el 22/10: 🟢 compra, 🔴 venta, ➕ compra parcial, ➖ venta parcial."""
+    casos = [
+        (snap(), snap(asset(1002, 1.0)), "🟢", "COMPRA"),
+        (snap(asset(1002, 1.0)), snap(asset(1002, 1.5)), "➕", "COMPRA PARCIAL"),
+        (snap(asset(1002, 1.0)), snap(asset(1002, 0.5)), "➖", "VENTA PARCIAL"),
+        (snap(asset(1002, 1.0)), snap(), "🔴", "VENTA"),
+    ]
+    for antes, despues, icono, verbo in casos:
+        texto = solo(diff_snapshots(antes, despues))
+        assert texto.startswith(f"{icono} <b>{verbo}</b>"), texto
+
+
+def test_iconos_de_los_cortos():
+    """Los cortos usan las mismas formas; el color, como hasta ahora."""
+    abre = solo(diff_snapshots(snap(), snap(asset(6, 0.35, direction="Sell"))))
+    amplia = solo(
+        diff_snapshots(
+            snap(asset(6, 0.35, direction="Sell")),
+            snap(asset(6, 0.70, direction="Sell")),
+        )
+    )
+    cierra = solo(
+        diff_snapshots(snap(asset(6, 0.35, direction="Sell")), snap())
+    )
+
+    assert abre.startswith("🟢 <b>ABRE CORTO</b>"), abre
+    assert amplia.startswith("➕ <b>COMPRA PARCIAL CORTO</b>"), amplia
+    assert cierra.startswith("🔴 <b>CIERRA CORTO</b>"), cierra
+
+
+def test_emoji_of_por_forma_y_por_tipo():
+    """Círculo total / signo parcial, y verde compra / rojo venta."""
+    from etoro_monitor.render import emoji_of
+
+    assert emoji_of("opened", partial=False) == "🟢"
+    assert emoji_of("increased", partial=True) == "➕"
+    assert emoji_of("reduced", partial=True) == "➖"
+    assert emoji_of("closed", partial=False) == "🔴"
+
+
+# ---------------------------------------------------------------------- #
 # Operaciones en largo
 # ---------------------------------------------------------------------- #
 def test_compra():

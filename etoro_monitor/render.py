@@ -20,32 +20,59 @@ from .models import KIND_ORDER, Change, EtoroUser, Snapshot
 
 log = logging.getLogger(__name__)
 
-# (emoji, verbo en largo, verbo en corto, verbo en largo parcial, verbo en
-# corto parcial). Los verbos cortos van en negrita igual que los largos, y
-# llevan "CORTO" explícito.
+# Iconos: la FORMA dice si la operación es total o parcial y el COLOR si es
+# compra o venta.
+#
+#   🟢 COMPRA            (total, compra)
+#   🔴 VENTA             (total, venta)
+#   ➕ COMPRA PARCIAL    (parcial, compra)
+#   ➖ VENTA PARCIAL     (parcial, venta)
+#
+# Las parciales son signos y no triángulos porque **no existe un emoji de
+# triángulo verde**: los únicos triángulos con color son 🔺 y 🔻, los dos rojos,
+# y un triángulo rojo para una compra confundiría. ➕ y ➖ sí son verdes y rojos,
+# y además se leen como lo que son: añadir o quitar unidades.
+EMOJI_COMPRA = ("🟢", "➕")  # (total, parcial)
+EMOJI_VENTA = ("🔴", "➖")  # (total, parcial)
+
+# Verbos por tipo de operación: (largo, corto, largo parcial, corto parcial).
+# Los cortos llevan "CORTO" explícito y van en negrita igual que los largos.
 #
 # Los verbos son los mismos que verías en el histórico de eToro: se compra o se
 # vende, y la operación es total (abre o cierra la posición) o parcial. Por eso
 # NO hay verbos del tipo "amplía" o "reduce": el aviso dice directamente si ha
 # comprado o vendido.
-ACTIONS: dict[str, tuple[str, str, str, str, str]] = {
-    "opened": ("🟢", "COMPRA", "ABRE CORTO", "COMPRA PARCIAL", "COMPRA PARCIAL CORTO"),
-    "increased": ("🟢", "COMPRA", "ABRE CORTO", "COMPRA PARCIAL", "COMPRA PARCIAL CORTO"),
-    "reduced": ("🔻", "VENTA", "CIERRA CORTO", "VENTA PARCIAL", "VENTA PARCIAL CORTO"),
-    "closed": ("🔴", "VENTA", "CIERRA CORTO", "VENTA PARCIAL", "VENTA PARCIAL CORTO"),
+ACTIONS: dict[str, tuple[str, str, str, str]] = {
+    "opened": ("COMPRA", "ABRE CORTO", "COMPRA PARCIAL", "COMPRA PARCIAL CORTO"),
+    "increased": ("COMPRA", "ABRE CORTO", "COMPRA PARCIAL", "COMPRA PARCIAL CORTO"),
+    "reduced": ("VENTA", "CIERRA CORTO", "VENTA PARCIAL", "VENTA PARCIAL CORTO"),
+    "closed": ("VENTA", "CIERRA CORTO", "VENTA PARCIAL", "VENTA PARCIAL CORTO"),
 }
+
+# Qué tipos de operación son "compra" a efectos del color.
+COMPRAS = ("opened", "increased")
+
+
+def emoji_of(kind: str, *, partial: bool) -> str:
+    """El icono: círculo si es total, cuadrado si es parcial; verde o rojo."""
+    total, parcial = EMOJI_COMPRA if kind in COMPRAS else EMOJI_VENTA
+    return parcial if partial else total
 
 
 def action_of(
     kind: str, is_short: bool, *, partial: bool = False
 ) -> tuple[str, str]:
     """Devuelve (emoji, verbo) para un tipo de operación."""
-    emoji, largo, corto, largo_parcial, corto_parcial = ACTIONS.get(
-        kind, ("❓", kind.upper(), kind.upper(), kind.upper(), kind.upper())
-    )
+    verbos = ACTIONS.get(kind)
+    if verbos is None:
+        return "❓", kind.upper()
+
+    largo, corto, largo_parcial, corto_parcial = verbos
     if is_short:
-        return emoji, (corto_parcial if partial else corto)
-    return emoji, (largo_parcial if partial else largo)
+        return emoji_of(kind, partial=partial), (
+            corto_parcial if partial else corto
+        )
+    return emoji_of(kind, partial=partial), (largo_parcial if partial else largo)
 
 
 # ---------------------------------------------------------------------- #
