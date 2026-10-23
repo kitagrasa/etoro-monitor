@@ -157,6 +157,22 @@ los cambios. Los umbrales que usa (`diff.py`) son de consistencia (cuántas
 posiciones comparten el factor y qué parte de la cartera cubren), no de tamaño de
 la operación.
 
+### Coherencia: si algo no cuadra, se relee
+
+La cartera y las posiciones se piden en momentos ligeramente distintos. Para que
+una lectura vieja no se coma una operación (pasó el 22/10/2026 con una compra de
+Microsoft), el monitor **comprueba que cuadren**: el `Invested` que da la cartera
+tiene que ser igual a la suma de unidades de las posiciones leídas.
+
+* Cuadra siempre en condiciones normales: en los **71 activos** de las carteras
+  que se siguen la diferencia es el redondeo (≤ 0,000002), y ese valor no se
+  mueve con el mercado.
+* Si no cuadra, se relee **ese** activo una vez, con un parámetro anti-caché. Si
+  la segunda lectura cuadra, el aviso sale en la misma pasada.
+* Si sigue sin cuadrar, se usa la lectura más reciente y queda un aviso en el
+  log. Nunca se bloquea el activo: bloquearlo podría dejarlo atascado.
+* Coste: **0 peticiones** en condiciones normales; una por activo descuadrado.
+
 ### El histórico de cierres: la segunda opinión
 
 Un ajuste se nota cuando **todas** las posiciones bajan lo mismo. Un recorte

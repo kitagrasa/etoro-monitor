@@ -281,11 +281,21 @@ class EtoroClient:
                 continue
         return result
 
-    def get_positions(self, cid: int, instrument_id: int) -> dict[str, Any]:
-        """Todas las posiciones ABIERTAS de un activo, con su PositionID."""
+    def get_positions(
+        self, cid: int, instrument_id: int, *, sin_cache: bool = False
+    ) -> dict[str, Any]:
+        """Todas las posiciones ABIERTAS de un activo, con su PositionID.
+
+        `sin_cache` añade un parámetro que cambia en cada llamada, para que no
+        vuelva la copia guardada en el CDN cuando se relee un activo (lo usa el
+        monitor cuando la cartera y las posiciones no cuadran).
+        """
+        params: dict[str, Any] = {"cid": cid, "instrumentId": instrument_id}
+        if sin_cache:
+            params["_"] = str(int(time.time() * 1000))
         data = self._get_json(
             "/sapi/trade-data-real/live/public/positions",
-            {"cid": cid, "instrumentId": instrument_id},
+            params,
             private_ok=True,
         )
         return data or {}

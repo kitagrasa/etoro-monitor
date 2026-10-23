@@ -29,7 +29,7 @@ USUARIO = {
 
 CARTERA = {
     "AggregatedPositions": [
-        {"InstrumentID": 1002, "Direction": "Buy", "Invested": 11.41},
+        {"InstrumentID": 1002, "Direction": "Buy", "Invested": 1.6},
         {"InstrumentID": 6, "Direction": "Sell", "Invested": 0.71},
     ]
 }
@@ -70,16 +70,30 @@ class FakeSession:
 
     `cierres` es lo que contestará el histórico de cierres (lista de grupos tal
     cual la devuelve eToro) y `historico_falla` permite simular que no contesta.
+
+    `secuencias` sirve para simular una lectura vieja de un activo:
+    `{instrumento: [[posiciones de la primera lectura], [posiciones de la
+    segunda], ...]}`. Cada llamada gasta una; la última se repite.
     """
 
-    def __init__(self, posiciones=None, cartera=None, cierres=None, historico_falla=None):
+    def __init__(
+        self,
+        posiciones=None,
+        cartera=None,
+        cierres=None,
+        historico_falla=None,
+        secuencias=None,
+    ):
         self.headers = {}
         self.llamadas: list[str] = []
         self.historico_llamadas = 0
         self.historico_params: list[dict] = []
+        # (instrumento, ¿se pidió sin caché?) por cada lectura de posiciones.
+        self.llamadas_posiciones: list[tuple[int, bool]] = []
         self.cartera = CARTERA if cartera is None else cartera
         self.cierres = cierres if cierres is not None else []
         self.historico_falla = historico_falla
+        self.secuencias = {k: [list(v) for v in lista] for k, lista in (secuencias or {}).items()}
         self.posiciones = (
             {1002: POSICIONES_1002["PublicPositions"], 6: POSICIONES_6["PublicPositions"]}
             if posiciones is None
@@ -103,6 +117,12 @@ class FakeSession:
             return FakeResponse(self.cartera)
         if "public/positions" in url:
             instrumento = int(params.get("instrumentId", 0))
+            self.llamadas_posiciones.append((instrumento, "_" in params))
+            if instrumento in self.secuencias:
+                lecturas = self.secuencias[instrumento]
+                return FakeResponse(
+                    {"PublicPositions": lecturas.pop(0) if len(lecturas) > 1 else lecturas[0]}
+                )
             return FakeResponse(
                 {"PublicPositions": self.posiciones.get(instrumento, [])}
             )
@@ -188,7 +208,7 @@ def estado_antiguo(tmp_path, *, unidades_previas: float, unidades_ahora: float):
         encoding="utf-8",
     )
 
-    cartera = [{"InstrumentID": 1002, "Direction": "Buy", "Invested": 5.0}]
+    cartera = [{"InstrumentID": 1002, "Direction": "Buy", "Invested": unidades_ahora}]
     posiciones = {
         1002: [{"PositionID": 701039100, "IsBuy": True, "Amount": unidades_ahora}]
     }
@@ -224,7 +244,7 @@ def test_tras_migrar_el_estado_ya_compara_posiciones(tmp_path):
     state, _ = estado_antiguo(tmp_path, unidades_previas=1.0, unidades_ahora=0.4)
 
     escenario = {
-        "cartera": [{"InstrumentID": 1002, "Direction": "Buy", "Invested": 7.0}],
+        "cartera": [{"InstrumentID": 1002, "Direction": "Buy", "Invested": 0.7}],
         "posiciones": {
             1002: [
                 {"PositionID": 701039100, "IsBuy": True, "Amount": 0.4},
@@ -353,7 +373,7 @@ def _cartera_con(factor: float = 1.0, *, compra_nueva: bool = False):
     cartera = []
     posiciones = {}
     for iid in (1002, 1003, 1004, 1005, 1006, 1007):
-        cartera.append({"InstrumentID": iid, "Direction": "Buy", "Invested": 5.0})
+        cartera.append({"InstrumentID": iid, "Direction": "Buy", "Invested": factor})
         posiciones[iid] = [{"PositionID": iid * 10, "IsBuy": True, "Amount": factor}]
     if compra_nueva:
         posiciones[1002].append({"PositionID": 9999, "IsBuy": True, "Amount": 0.5})
@@ -439,7 +459,7 @@ def _cartera_de(unidades):
     cartera = []
     posiciones = {}
     for iid, cantidad in unidades.items():
-        cartera.append({"InstrumentID": iid, "Direction": "Buy", "Invested": 5.0})
+        cartera.append({"InstrumentID": iid, "Direction": "Buy", "Invested": cantidad})
         posiciones[iid] = [{"PositionID": iid * 10, "IsBuy": True, "Amount": cantidad}]
     return {"AggregatedPositions": cartera}, posiciones
 
@@ -582,3 +602,92 @@ def test_un_estado_sin_marca_de_agua_no_se_calla_nada(tmp_path):
     assert len(avisos) == 1
     # Y se aprovecha para dejar puesta la marca de agua.
     assert state.user("usuarioejemplo").history_since is not None
+
+
+# ---------------------------------------------------------------------- #
+# Coherencia cartera <-> posiciones: la segunda lectura
+# ---------------------------------------------------------------------- #
+def _pasada_con(state, avisos, cartera, posiciones, *, secuencias=None):
+    session = FakeSession(cartera=cartera, posiciones=posiciones, secuencias=secuencias)
+    client = EtoroClient(delay=0.0, session=session)
+    reporte = Monitor(client, state, notify=avisos.append).run(["UsuarioEjemplo"])[0]
+    client.close()
+    return reporte, session
+
+
+def test_si_las_posiciones_no_cuadran_con_la_cartera_se_relee(tmp_path):
+    """El fallo del 22/10: la lectura de un activo se quedó atrás.
+
+    La cartera ya dice que ese activo tiene 2 unidades, pero la primera lectura
+    de posiciones devuelve 1 (vieja). Se relee con anti-caché, cuadra, y la
+    compra se avisa en la misma pasada.
+    """
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)  # línea base: 1 unidad por activo
+    avisos.clear()
+
+    cartera, posiciones = _cartera_de({**UNA, 1002: 2.0})
+    vieja = [{"PositionID": 10020, "IsBuy": True, "Amount": 1.0}]
+    nueva = [{"PositionID": 10020, "IsBuy": True, "Amount": 2.0}]
+
+    reporte, session = _pasada_con(
+        state, avisos, cartera, posiciones, secuencias={1002: [vieja, nueva]}
+    )
+
+    assert [c.instrument_id for c in reporte.changes] == [1002]
+    assert reporte.changes[0].after.units == 2.0
+    assert "COMPRA PARCIAL" in avisos[0]
+
+    lecturas = [x for x in session.llamadas_posiciones if x[0] == 1002]
+    assert lecturas == [(1002, False), (1002, True)], "la segunda va sin caché"
+
+
+def test_si_cuadra_no_se_gasta_ninguna_lectura_de_mas(tmp_path):
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)
+    avisos.clear()
+
+    cartera, posiciones = _cartera_de({**UNA, 1002: 2.0})
+    reporte, session = _pasada_con(state, avisos, cartera, posiciones)
+
+    assert [c.instrument_id for c in reporte.changes] == [1002]
+    assert [x for x in session.llamadas_posiciones if x[0] == 1002] == [(1002, False)]
+
+
+def test_si_tras_releer_sigue_sin_cuadrar_se_usa_la_lectura_nueva(tmp_path):
+    """No se bloquea el activo: se usa la más reciente y se sigue."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, UNA)
+    avisos.clear()
+
+    cartera, posiciones = _cartera_de({**UNA, 1002: 2.0})
+    primera = [{"PositionID": 10020, "IsBuy": True, "Amount": 1.0}]
+    segunda = [{"PositionID": 10020, "IsBuy": True, "Amount": 1.5}]
+
+    reporte, session = _pasada_con(
+        state, avisos, cartera, posiciones, secuencias={1002: [primera, segunda]}
+    )
+
+    assert [c.instrument_id for c in reporte.changes] == [1002]
+    assert reporte.changes[0].after.units == 1.5
+    assert len([x for x in session.llamadas_posiciones if x[0] == 1002]) == 2
+
+
+def test_en_los_cortos_no_se_comprueba_la_coherencia(tmp_path):
+    """En un corto no está comprobado que Invested sea la suma de unidades."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    cartera = {
+        "AggregatedPositions": [
+            {"InstrumentID": 6, "Direction": "Sell", "Invested": 0.71}
+        ]
+    }
+    posiciones = {6: [{"PositionID": 60, "IsBuy": False, "Amount": 0.354594}]}
+
+    _, session = _pasada_con(state, avisos, cartera, posiciones)
+
+    assert session.llamadas_posiciones == [(6, False)], "no debe releer en cortos"
+

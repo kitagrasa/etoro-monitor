@@ -29,6 +29,22 @@ def _ahora_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# Cuánto puede separarse el "Invested" de la cartera de la suma de unidades de
+# las posiciones leídas antes de sospechar que una de las dos lecturas es vieja.
+# En los 71 activos de las carteras que se siguen la diferencia es el redondeo
+# (0,000002), así que con estos umbrales no salta nunca en condiciones normales;
+# el descuadre que buscamos (la compra perdida del 22/10) era del 3,4%.
+DESCUADRE_ABSOLUTO = 0.01
+DESCUADRE_RELATIVO = 0.002
+
+
+def _cuadra(invertido: float, posiciones: dict[int, Position]) -> bool:
+    """¿La cartera y la suma de las posiciones dicen lo mismo?"""
+    total = sum(p.units for p in posiciones.values())
+    tolerancia = max(DESCUADRE_ABSOLUTO, DESCUADRE_RELATIVO * abs(invertido))
+    return abs(invertido - total) <= tolerancia
+
+
 def _es_nombre_de_relleno(nombre: str) -> bool:
     """¿Es el texto de emergencia ("Instrumento 8804") y no un nombre real?"""
     return nombre.startswith("Instrumento ")
@@ -354,7 +370,9 @@ class Monitor:
             invested_pct = float(row.get("Invested") or 0.0)
             key = f"{instrument_id}:{direction}"
 
-            posiciones = self._positions_of(cid, instrument_id, direction)
+            posiciones = self._posiciones_que_cuadren(
+                cid, instrument_id, direction, invested_pct
+            )
 
             anteriores = assets.get(key)
             if anteriores is None:
@@ -385,8 +403,68 @@ class Monitor:
 
         return Snapshot(user=user, assets=assets)
 
+    def _posiciones_que_cuadren(
+        self,
+        cid: int,
+        instrument_id: int,
+        direction: str,
+        invertido: float,
+    ) -> dict[int, Position]:
+        """Lee las posiciones y, si no cuadran con la cartera, relee una vez.
+
+        La cartera (`AggregatedPositions.Invested`) y la suma de unidades de las
+        posiciones son la misma magnitud: en los 71 activos de las carteras que
+        se siguen cuadran al céntimo (la diferencia es el redondeo, 0,000002) y
+        el valor no se mueve con el mercado. Así que si dejan de cuadrar es que
+        una de las dos lecturas es vieja.
+
+        Eso fue justo lo que pasó el 22/10/2026: la lectura de las posiciones de
+        un activo se quedó atrás y su compra no se avisó. Ahora, si no cuadran,
+        se relee **ese** activo con un parámetro anti-caché y se usa lo que
+        llegue. Si sigue sin cuadrar, se usa igualmente la lectura nueva (es la
+        más reciente) y se deja un aviso en el log: bloquear el activo hasta que
+        cuadre podría dejarlo atascado para siempre, y eso sí sería perder
+        avisos.
+
+        De momento solo se comprueba en largos: en los cortos no está
+        comprobado que `Invested` sea la suma de unidades, y no quiero releer en
+        balde en cada pasada.
+        """
+        posiciones = self._positions_of(cid, instrument_id, direction)
+
+        if direction.strip().lower() == "sell":
+            return posiciones
+
+        if _cuadra(invertido, posiciones):
+            return posiciones
+
+        total = sum(p.units for p in posiciones.values())
+        log.info(
+            "Activo %s: la cartera dice %.6f y las posiciones suman %.6f; se relee",
+            instrument_id,
+            invertido,
+            total,
+        )
+        nuevas = self._positions_of(cid, instrument_id, direction, sin_cache=True)
+        if _cuadra(invertido, nuevas):
+            log.info("Activo %s: la segunda lectura cuadra", instrument_id)
+        else:
+            log.warning(
+                "Activo %s: sigue sin cuadrar tras releer (cartera %.6f, "
+                "posiciones %.6f); se usa la lectura nueva",
+                instrument_id,
+                invertido,
+                sum(p.units for p in nuevas.values()),
+            )
+        return nuevas
+
     def _positions_of(
-        self, cid: int, instrument_id: int, direction: str
+        self,
+        cid: int,
+        instrument_id: int,
+        direction: str,
+        *,
+        sin_cache: bool = False,
     ) -> dict[int, Position]:
         """Las posiciones abiertas de ese lado, con su identificador.
 
@@ -399,7 +477,9 @@ class Monitor:
         existía. Si el mismo identificador apareciera dos veces (no debería),
         las unidades se suman en vez de pisarse.
         """
-        payload = self.client.get_positions(cid, instrument_id)
+        payload = self.client.get_positions(
+            cid, instrument_id, sin_cache=sin_cache
+        )
         quiere_buy = direction.strip().lower() != "sell"
         posiciones: dict[int, Position] = {}
         for raw in payload.get("PublicPositions") or []:
