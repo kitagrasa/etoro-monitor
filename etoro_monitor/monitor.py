@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Optional, Sequence
@@ -43,6 +44,16 @@ def _cuadra(invertido: float, posiciones: dict[int, Position]) -> bool:
     total = sum(p.units for p in posiciones.values())
     tolerancia = max(DESCUADRE_ABSOLUTO, DESCUADRE_RELATIVO * abs(invertido))
     return abs(invertido - total) <= tolerancia
+
+
+def _activo_canario(assets: dict[str, Asset], turno: int) -> Optional[Asset]:
+    """Qué largo se comprueba en esta pasada (el turno lo lleva el estado)."""
+    largos = sorted(
+        (a for a in assets.values() if not a.is_short), key=lambda a: a.instrument_id
+    )
+    if not largos:
+        return None
+    return largos[turno % len(largos)]
 
 
 def _es_nombre_de_relleno(nombre: str) -> bool:
@@ -191,16 +202,16 @@ class Monitor:
             and not aprendiendo_posiciones
         ):
             previous = Snapshot(user=previous_state.user, assets=dict(previous_state.assets))
-            changes, adjustment = split_adjustment(
-                diff_snapshots(previous, snapshot),
-                total_positions=sum(len(a.positions) for a in previous.assets.values()),
-                total_assets=len(previous.instrument_ids),
-            )
             # Se avisa del NETO de cada activo: comprar 5 y vender 5 entre dos
             # pasadas no es nada que copiar; comprar 5 y vender 4 es una compra
-            # parcial de 1. Se hace después del detector de ajustes (que mira
-            # posición a posición, que es donde se ve si el recorte es uniforme).
-            changes = netear(changes)
+            # parcial de 1. En los largos el diff ya da un solo cambio por
+            # activo (compara totales); en los cortos junta las posiciones.
+            changes = netear(diff_snapshots(previous, snapshot))
+            changes, adjustment = split_adjustment(
+                changes,
+                total_positions=len(previous.assets),
+                total_assets=len(previous.instrument_ids),
+            )
             # El histórico se pide en toda pasada en la que se pueda: es el
             # árbitro de las bajadas pequeñas (recortes de eToro que no son
             # ventas). Una sola petición cubre toda la cartera.
@@ -222,6 +233,9 @@ class Monitor:
         new_state.assets = dict(snapshot.assets)
         new_state.needs_positions_baseline = False
         new_state.history_since = foto
+        # El canario mira un activo distinto en cada pasada; el turno va en el
+        # estado para que no dependa de a qué hora caiga la ejecución.
+        new_state.canario = (previous_state.canario if previous_state else 0) + 1
 
         # Un activo que ha desaparecido (VENTA) ya no está en la foto, así que
         # su nombre solo puede venir de la caché. Si no está (pasó el
@@ -254,7 +268,7 @@ class Monitor:
             log.info("%s: %s operación(es) notificadas", user.username, len(changes))
             if adjustment is not None:
                 log.info(
-                    "%s: además, ajuste proporcional del %.2f%% en %d posiciones "
+                    "%s: además, ajuste proporcional del %.2f%% en %d activo(s) "
                     "(no se avisa como operación)",
                     user.username,
                     adjustment.percentage,
@@ -263,7 +277,7 @@ class Monitor:
         elif adjustment is not None:
             # Solo hubo ajuste: no hay compras ni ventas que avisar.
             log.info(
-                "%s: ajuste proporcional del %.2f%% en %d posiciones (sin aviso)",
+                "%s: ajuste proporcional del %.2f%% en %d activo(s) (sin aviso)",
                 user.username,
                 adjustment.percentage,
                 adjustment.positions,
@@ -353,7 +367,14 @@ class Monitor:
         )
 
     def fetch_snapshot(self, user: EtoroUser) -> Snapshot:
-        """Lee la cartera y resume cada activo en (posiciones, lado, peso)."""
+        """Lee la cartera y resume cada activo en (unidades totales, lado, peso).
+
+        En los **largos** basta con el `Invested` de la cartera, que es
+        exactamente la suma de unidades de las posiciones: una sola petición
+        para toda la cartera, sin pedir las posiciones activo a activo. En los
+        **cortos** no está comprobado que `Invested` sea la suma de unidades, así
+        que se siguen leyendo las posiciones (una petición por activo en corto).
+        """
         cid = user.real_cid
         portfolio = self.client.get_portfolio(cid)
         rows = portfolio.get("AggregatedPositions") or []
@@ -369,10 +390,15 @@ class Monitor:
             direction = str(row.get("Direction") or "Buy")
             invested_pct = float(row.get("Invested") or 0.0)
             key = f"{instrument_id}:{direction}"
+            corto = direction.strip().lower() == "sell"
 
-            posiciones = self._posiciones_que_cuadren(
-                cid, instrument_id, direction, invested_pct
-            )
+            if corto:
+                posiciones = self._positions_of(cid, instrument_id, direction)
+                total = None
+            else:
+                # Sin pedir posiciones: el total es el propio `Invested`.
+                posiciones = {}
+                total = invested_pct
 
             anteriores = assets.get(key)
             if anteriores is None:
@@ -381,6 +407,7 @@ class Monitor:
                     direction=direction,
                     positions=posiciones,
                     invested_pct=invested_pct,
+                    total=total,
                 )
             else:
                 # Caso raro: dos filas del mismo activo y lado. Se juntan.
@@ -397,66 +424,60 @@ class Monitor:
                     direction=direction,
                     positions=juntas,
                     invested_pct=anteriores.invested_pct + invested_pct,
+                    total=anteriores.units + (total if total is not None else 0.0),
                 )
 
             self._ensure_instrument(instrument_id)
 
+        anterior = self.state.user(user.slug)
+        self._canario(cid, assets, anterior.canario if anterior is not None else 0)
         return Snapshot(user=user, assets=assets)
 
-    def _posiciones_que_cuadren(
-        self,
-        cid: int,
-        instrument_id: int,
-        direction: str,
-        invertido: float,
-    ) -> dict[int, Position]:
-        """Lee las posiciones y, si no cuadran con la cartera, relee una vez.
+    def _canario(self, cid: int, assets: dict[str, Asset], turno: int) -> None:
+        """Comprueba, en UN largo, que `Invested` sigue siendo las unidades.
 
-        La cartera (`AggregatedPositions.Invested`) y la suma de unidades de las
-        posiciones son la misma magnitud: en los 71 activos de las carteras que
-        se siguen cuadran al céntimo (la diferencia es el redondeo, 0,000002) y
-        el valor no se mueve con el mercado. Así que si dejan de cuadrar es que
-        una de las dos lecturas es vieja.
+        La detección se apoya en que el `Invested` de la cartera es la suma de
+        unidades de las posiciones y no se mueve con el mercado (71 de 71
+        activos, comprobado también con una sesión entera, dos ajustes y varias
+        compras). Es un contrato no documentado: si eToro lo cambiara, los avisos
+        saldrían mal. En cada pasada se pide un activo distinto y se comprueba;
+        si no cuadra, queda un aviso bien visible en el log.
 
-        Eso fue justo lo que pasó el 22/10/2026: la lectura de las posiciones de
-        un activo se quedó atrás y su compra no se avisó. Ahora, si no cuadran,
-        se relee **ese** activo con un parámetro anti-caché y se usa lo que
-        llegue. Si sigue sin cuadrar, se usa igualmente la lectura nueva (es la
-        más reciente) y se deja un aviso en el log: bloquear el activo hasta que
-        cuadre podría dejarlo atascado para siempre, y eso sí sería perder
-        avisos.
-
-        De momento solo se comprueba en largos: en los cortos no está
-        comprobado que `Invested` sea la suma de unidades, y no quiero releer en
-        balde en cada pasada.
+        Coste: 1 petición por persona y pasada. El activo elegido rota con la
+        hora (sin guardar nada en el estado).
         """
-        posiciones = self._positions_of(cid, instrument_id, direction)
-
-        if direction.strip().lower() == "sell":
-            return posiciones
-
-        if _cuadra(invertido, posiciones):
-            return posiciones
-
-        total = sum(p.units for p in posiciones.values())
-        log.info(
-            "Activo %s: la cartera dice %.6f y las posiciones suman %.6f; se relee",
-            instrument_id,
-            invertido,
-            total,
-        )
-        nuevas = self._positions_of(cid, instrument_id, direction, sin_cache=True)
-        if _cuadra(invertido, nuevas):
-            log.info("Activo %s: la segunda lectura cuadra", instrument_id)
-        else:
-            log.warning(
-                "Activo %s: sigue sin cuadrar tras releer (cartera %.6f, "
-                "posiciones %.6f); se usa la lectura nueva",
-                instrument_id,
-                invertido,
-                sum(p.units for p in nuevas.values()),
+        elegido = _activo_canario(assets, turno)
+        if elegido is None:
+            return
+        posiciones = self._positions_of(cid, elegido.instrument_id, elegido.direction)
+        if _cuadra(elegido.units, posiciones):
+            log.info(
+                "Canario: el activo %s cuadra (%.6f)",
+                elegido.instrument_id,
+                elegido.units,
             )
-        return nuevas
+            return
+
+        # Antes de dar la alarma, una lectura sin caché: puede ser una copia
+        # vieja del CDN y no que eToro haya cambiado nada.
+        posiciones = self._positions_of(
+            cid, elegido.instrument_id, elegido.direction, sin_cache=True
+        )
+        if _cuadra(elegido.units, posiciones):
+            log.info(
+                "Canario: el activo %s cuadra en la segunda lectura",
+                elegido.instrument_id,
+            )
+            return
+
+        log.warning(
+            "Canario: el activo %s NO cuadra (cartera %.6f, posiciones %.6f). "
+            "Si se repite con otros activos, eToro ha cambiado lo que significa "
+            "Invested: hay que volver al modo de posiciones.",
+            elegido.instrument_id,
+            elegido.units,
+            sum(p.units for p in posiciones.values()),
+        )
 
     def _positions_of(
         self,

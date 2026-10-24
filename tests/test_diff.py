@@ -520,3 +520,143 @@ def test_netear_deja_un_cambio_por_activo():
     assert len(diff_snapshots(before, after)) == 3
     assert [c.kind for c in netos(before, after)] == ["reduced"]
 
+
+# ---------------------------------------------------------------------- #
+# El mínimo de cambios no puede superar el tamaño de la cartera
+# ---------------------------------------------------------------------- #
+def test_un_ajuste_en_una_cartera_de_tres_posiciones_se_detecta():
+    """24/10/2026: en una cartera de 3 posiciones no se pueden pedir 4 cambios.
+
+    Un ingreso o una retirada diluye todas las posiciones en el mismo factor; en
+    una cartera pequeña hay menos cambios que el mínimo y saldrían "ventas
+    parciales" falsas.
+    """
+    changes = diff_snapshots(
+        snap(_muchas(1.0, cuantas=3)), snap(_muchas(0.997, cuantas=3))
+    )
+    assert len(changes) == 3
+
+    operaciones, ajuste = split_adjustment(changes, total_positions=3, total_assets=1)
+
+    assert operaciones == []
+    assert ajuste is not None
+    assert ajuste.positions == 3
+
+
+def test_un_ajuste_en_una_cartera_de_dos_posiciones_tambien():
+    changes = diff_snapshots(
+        snap(_muchas(1.0, cuantas=2)), snap(_muchas(0.997, cuantas=2))
+    )
+    operaciones, ajuste = split_adjustment(changes, total_positions=2, total_assets=1)
+    assert operaciones == []
+    assert ajuste is not None
+
+
+def test_con_una_sola_posicion_nunca_hay_ajuste():
+    """Un único cambio es indistinguible de una venta: no se puede silenciar."""
+    changes = diff_snapshots(snap(asset(1002, 1.0)), snap(asset(1002, 0.5)))
+
+    operaciones, ajuste = split_adjustment(changes, total_positions=1, total_assets=1)
+
+    assert ajuste is None
+    assert len(operaciones) == 1
+
+
+def test_en_una_cartera_de_tres_posiciones_dos_ventas_no_son_ajuste():
+    """Que el mínimo baje no significa que cualquier cosa sea un ajuste."""
+    before = snap(asset(1002, 1.0, extra={2001: 1.0, 2002: 1.0}))
+    after = snap(asset(1002, 0.5, extra={2001: 0.5, 2002: 1.0}))
+
+    operaciones, ajuste = split_adjustment(
+        diff_snapshots(before, after), total_positions=3, total_assets=1
+    )
+
+    assert ajuste is None
+    assert len(operaciones) == 2
+
+
+def test_en_una_cartera_grande_el_minimo_sigue_siendo_cuatro():
+    """La cartera de 25 posiciones sigue exigiendo 4 cambios, como antes."""
+    before = snap(asset(1002, 1.0, extra={2000 + i: 1.0 for i in range(24)}))
+    after = snap(
+        asset(
+            1002,
+            0.997,
+            extra={2000 + i: (1.0 if i < 22 else 0.997) for i in range(24)},
+        )
+    )
+    changes = diff_snapshots(before, after)
+    assert len(changes) == 3, "solo cambian 3 de las 25"
+
+    operaciones, ajuste = split_adjustment(changes, total_positions=25, total_assets=1)
+    assert ajuste is None
+    assert len(operaciones) == 3
+
+# ---------------------------------------------------------------------- #
+# Modo cartera: se compara el total del activo, sin posiciones
+# ---------------------------------------------------------------------- #
+def total(iid, unidades, *, pct=1.0, direction="Buy"):
+    """Activo en modo cartera: solo el total (sin posiciones)."""
+    return Asset(
+        instrument_id=iid,
+        direction=direction,
+        positions={},
+        invested_pct=pct,
+        total=unidades,
+    )
+
+
+def test_modo_cartera_sin_cambio_no_da_nada():
+    assert diff_snapshots(snap(total(1002, 1.0)), snap(total(1002, 1.0))) == []
+
+
+def test_modo_cartera_compra_parcial():
+    cambios = diff_snapshots(snap(total(1002, 1.0)), snap(total(1002, 1.5)))
+    assert [c.kind for c in cambios] == ["increased"]
+    assert cambios[0].is_partial is True
+    assert cambios[0].position_id is None
+
+
+def test_modo_cartera_venta_parcial():
+    cambios = diff_snapshots(snap(total(1002, 1.0)), snap(total(1002, 0.4)))
+    assert [c.kind for c in cambios] == ["reduced"]
+    assert cambios[0].is_partial is True
+
+
+def test_modo_cartera_activo_nuevo_y_activo_que_desaparece():
+    nuevo = diff_snapshots(snap(total(1002, 1.0)), snap(total(1002, 1.0), total(1003, 2.0)))
+    assert [(c.kind, c.instrument_id) for c in nuevo] == [("opened", 1003)]
+    assert nuevo[0].instrument_was_new is True
+    assert nuevo[0].is_partial is False
+
+    fuera = diff_snapshots(snap(total(1002, 1.0), total(1003, 2.0)), snap(total(1003, 2.0)))
+    assert [(c.kind, c.instrument_id) for c in fuera] == [("closed", 1002)]
+    assert fuera[0].instrument_now_empty is True
+
+
+def test_modo_cartera_comprar_y_vender_lo_mismo_no_deja_nada():
+    """Comprar 5 y vender 5 entre dos pasadas: el total no cambia."""
+    assert diff_snapshots(snap(total(1002, 10.0)), snap(total(1002, 10.0))) == []
+
+
+def test_modo_cartera_cambiar_de_lado_son_dos_operaciones():
+    cambios = diff_snapshots(
+        snap(total(1002, 1.0, direction="Buy")),
+        snap(total(1002, 1.0, direction="Sell")),
+    )
+    assert sorted(c.kind for c in cambios) == ["closed", "opened"]
+
+
+def test_modo_cartera_tambien_vale_para_migrar():
+    """Un estado con posiciones contra una foto con solo total: se comparan
+    totales (si no, todas las posiciones parecerían cerradas)."""
+    cambios = diff_snapshots(
+        snap(asset(1002, 1.0, extra={9999: 0.5})), snap(total(1002, 1.5))
+    )
+    assert cambios == []
+
+    cambios = diff_snapshots(
+        snap(asset(1002, 1.0, extra={9999: 0.5})), snap(total(1002, 2.0))
+    )
+    assert [c.kind for c in cambios] == ["increased"]
+

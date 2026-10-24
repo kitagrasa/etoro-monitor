@@ -69,6 +69,9 @@ class UserState:
     # releer meses de operaciones. Si falta (estado viejo), la pasada se
     # resuelve sin histórico, como siempre.
     history_since: Optional[str] = None
+    # Turno del canario: qué activo se comprueba en la próxima pasada. Avanza de
+    # uno en uno, así que en N pasadas ha mirado los N activos.
+    canario: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -83,6 +86,7 @@ class UserState:
             "baseline_sent": self.baseline_sent,
             "needs_positions_baseline": self.needs_positions_baseline,
             "history_since": self.history_since,
+            "canario": self.canario,
             "assets": {key: asset.to_dict() for key, asset in sorted(self.assets.items())},
         }
 
@@ -116,6 +120,7 @@ class UserState:
             baseline_sent=bool(data.get("baseline_sent")),
             needs_positions_baseline=heredado,
             history_since=data.get("history_since") or None,
+            canario=int(data.get("canario") or 0),
         )
 
 

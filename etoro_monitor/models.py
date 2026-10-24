@@ -148,24 +148,29 @@ class Position:
 class Asset:
     """Lo que recordamos de cada activo (y lado) de la cartera.
 
-    Por qué esto y no otra cosa:
+    Sus unidades totales, que es lo único que decide si hubo operación. Se
+    pueden saber de dos maneras:
 
-    * `positions` (una entrada por operación abierta, con sus unidades) es el
-      único dato que **solo cambia cuando el usuario opera**. El precio del
-      activo no lo toca, ni el del resto de la cartera. Comparando posiciones
-      se distingue "ha comprado" de "el mercado se ha movido" y, además, **qué**
-      posición se ha abierto o cerrado: eso es lo que separa una compra de una
-      compra parcial.
-    * `direction` ("Buy"/"Sell") dice si el activo está en largo o en corto.
-    * `invested_pct` (campo `Invested` de eToro: porcentaje de la cartera que
-      supone el coste del activo) es solo **contexto para el mensaje**. No se
-      usa para detectar nada, porque se mueve con el mercado.
+    * `total` (modo cartera, el normal): el campo `Invested` del agregado de la
+      cartera es **exactamente la suma de unidades de las posiciones** — en los
+      71 activos de las carteras que se siguen cuadra al céntimo — y no se mueve
+      con el mercado. Con eso basta y no hace falta pedir las posiciones: una
+      petición por persona en vez de una por activo.
+    * `positions` (una entrada por operación abierta): la vía de siempre, que
+      se sigue usando en los **cortos**, donde no está comprobado que
+      `Invested` sea la suma de unidades, y para los estados antiguos.
+
+    `direction` ("Buy"/"Sell") dice si el activo está en largo o en corto, e
+    `invested_pct` es el peso que se enseña en el mensaje: en el modo cartera es
+    el mismo número que `total`.
     """
 
     instrument_id: int
     direction: str
     positions: dict[int, Position] = field(default_factory=dict)
     invested_pct: float = 0.0
+    # Unidades totales cuando no se leen las posiciones. `None` = se suman.
+    total: Optional[float] = None
 
     @property
     def key(self) -> str:
@@ -178,8 +183,15 @@ class Asset:
 
     @property
     def units(self) -> float:
-        """Total de unidades del activo: la suma de sus posiciones abiertas."""
+        """Total de unidades del activo: el total o la suma de sus posiciones."""
+        if self.total is not None:
+            return self.total
         return sum(p.units for p in self.positions.values())
+
+    @property
+    def por_posiciones(self) -> bool:
+        """¿Las unidades salen de las posiciones (cortos / estados antiguos)?"""
+        return bool(self.positions) or self.total is None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -202,18 +214,18 @@ class Asset:
             position.position_id: position
             for position in (Position.from_dict(item) for item in raw_positions)
         }
-        if not positions and data.get("units"):
-            # Estado anterior al 3: guardaba el total de unidades sin decir de
-            # qué posiciones venía. Se conserva con un identificador 0, que
-            # eToro nunca usa, para no perder el dato al migrar. Da igual que
-            # no cuadre con las posiciones nuevas: el estado marcado como
-            # heredado no se compara (ver `needs_positions_baseline`).
-            positions = {0: Position(position_id=0, units=float(data["units"]))}
+        # Sin posiciones guardadas, el total está en `units` (el estado nuevo
+        # guarda solo el total; el antiguo, también, y así se migra sin perder
+        # el dato).
+        total: Optional[float] = None
+        if not positions and data.get("units") is not None:
+            total = float(data["units"])
         return cls(
             instrument_id=int(data["instrument_id"]),
             direction=str(data.get("direction") or "Buy"),
             positions=positions,
             invested_pct=float(data.get("invested_pct") or 0.0),
+            total=total,
         )
 
 
@@ -307,7 +319,8 @@ class Adjustment:
     `diff.split_adjustment`), y se resume en una línea o no se avisa.
 
     `factor` es el multiplicador (0,997 = bajar un 0,30%).
-    `positions` es cuántas posiciones entraron en el ajuste.
+    `positions` es cuántos elementos entraron en el ajuste (activos, desde que se
+    compara el total de cada uno).
     """
 
     factor: float

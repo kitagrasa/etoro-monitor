@@ -126,10 +126,10 @@ def test_un_estado_antiguo_no_se_compara_hasta_tener_posiciones(tmp_path):
     assert heredado is not None
     assert heredado.baseline_sent is True
     assert heredado.needs_positions_baseline is True
-    # Las unidades del estado viejo no se pierden: quedan con un identificador
-    # 0 (que eToro no usa) para que se vean al revisar el fichero.
+    # Las unidades del estado viejo no se pierden: se guardan como total del
+    # activo (sin inventarse posiciones).
     assert heredado.assets["1002:Buy"].units == 11.417114
-    assert heredado.assets["1002:Buy"].positions[0].units == 11.417114
+    assert heredado.assets["1002:Buy"].positions == {}
 
 
 def test_no_hay_campos_que_crezcan_sin_limite(tmp_path):
@@ -160,6 +160,8 @@ def test_no_hay_campos_que_crezcan_sin_limite(tmp_path):
         "needs_positions_baseline",
         # Marca de agua del histórico de cierres (una fecha UTC, no una lista).
         "history_since",
+        # Turno del canario (un número, no una lista de nada).
+        "canario",
         "assets",
     }, f"el estado ha ganado campos: {campos}"
 

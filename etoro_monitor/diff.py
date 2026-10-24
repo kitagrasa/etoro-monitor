@@ -88,7 +88,15 @@ def diff_snapshots(before: Snapshot, after: Snapshot) -> list[Change]:
 
 
 def _changes_between(previous: Asset, current: Asset) -> list[Change]:
-    """Compara las posiciones abiertas del mismo activo y lado."""
+    """Los cambios del mismo activo y lado entre las dos fotos.
+
+    Si las dos fotos traen las posiciones (cortos y estados antiguos) se compara
+    posición a posición. Si no (modo cartera: el activo solo guarda su total), se
+    compara el total, que es lo único que se avisa.
+    """
+    if not previous.por_posiciones or not current.por_posiciones:
+        return _cambio_por_total(previous, current)
+
     comunes = [
         Change(
             kind="increased" if ahora.units > antes.units else "reduced",
@@ -126,6 +134,26 @@ def _changes_between(previous: Asset, current: Asset) -> list[Change]:
     ]
 
     return comunes + abiertas + cerradas
+
+
+def _cambio_por_total(previous: Asset, current: Asset) -> list[Change]:
+    """Compara el total del activo: un solo cambio, sin posición.
+
+    Comprar 5 y vender 5 entre dos pasadas deja el mismo total y no produce
+    cambio; comprar 5 y vender 4 deja uno más y produce una compra parcial.
+    """
+    delta = round(current.units, UNITS_DECIMALS) - round(previous.units, UNITS_DECIMALS)
+    if delta == 0:
+        return []
+    return [
+        Change(
+            kind="increased" if delta > 0 else "reduced",
+            instrument_id=current.instrument_id,
+            direction=current.direction,
+            before=previous,
+            after=current,
+        )
+    ]
 
 
 def _positions_changed(
@@ -213,7 +241,9 @@ def netear(changes: list[Change]) -> list[Change]:
 # ---------------------------------------------------------------------- #
 # Ajustes proporcionales: separarlos de las operaciones reales
 # ---------------------------------------------------------------------- #
-# Cuántas posiciones tienen que cambiar para poder hablar de "ajuste".
+# Cuántas posiciones tienen que cambiar para poder hablar de "ajuste". Es un
+# máximo: nunca se pueden exigir más cambios de los que tiene la cartera (ver
+# `split_adjustment`).
 ADJUSTMENT_MIN_POSITIONS = 4
 # Qué fracción de las cambiadas tiene que compartir el mismo factor (0,8 = 80%).
 ADJUSTMENT_SHARE = 0.8
@@ -251,6 +281,9 @@ def split_adjustment(
     ajuste como uno del 0,30%. Lo que decide es que sea proporcional y que
     coja a la cartera entera, no cuánto baja.
 
+    Y el número de cambios exigido es un **máximo**: en una cartera de 3
+    posiciones solo se pueden cambiar 3, así que se piden 3 (no 4).
+
     Devuelve `(operaciones, ajuste)`:
 
     * si no hay ajuste, `(changes, None)`;
@@ -261,15 +294,35 @@ def split_adjustment(
     for change in changes:
         if change.kind not in ("increased", "reduced"):
             continue
-        if change.before is None or change.after is None or change.position_id is None:
+        if change.before is None or change.after is None:
             continue
-        antes = change.before.positions.get(change.position_id)
-        ahora = change.after.positions.get(change.position_id)
-        if antes is None or ahora is None or antes.units <= 0:
-            continue
-        candidatos.append((change, ahora.units / antes.units))
+        if change.position_id is not None:
+            # Cambio de una posición concreta (cortos y estados antiguos).
+            antes = change.before.positions.get(change.position_id)
+            ahora = change.after.positions.get(change.position_id)
+            if antes is None or ahora is None or antes.units <= 0:
+                continue
+            ratio = ahora.units / antes.units
+        else:
+            # Cambio del total del activo (modo cartera).
+            if change.before.units <= 0:
+                continue
+            ratio = change.after.units / change.before.units
+        candidatos.append((change, ratio))
 
-    if len(candidatos) < ADJUSTMENT_MIN_POSITIONS:
+    # El mínimo es un máximo: no se pueden exigir más cambios de los que hay.
+    # En una cartera de 3 posiciones, un ingreso que diluya todo produce 3
+    # cambios y con el mínimo fijo de 4 no se detectaría: saldrían 3 "ventas
+    # parciales" falsas (24/10/2026). En una cartera de 25, sigue habiendo que
+    # cambiar 4, igual que antes.
+    #
+    # Pero nunca se baja de 2: con un solo cambio no se puede hablar de ajuste,
+    # porque es indistinguible de una venta normal.
+    minimo = ADJUSTMENT_MIN_POSITIONS
+    if total_positions > 0:
+        minimo = min(minimo, total_positions)
+    minimo = max(2, minimo)
+    if len(candidatos) < minimo:
         return changes, None
 
     factor = statistics.median(ratio for _, ratio in candidatos)

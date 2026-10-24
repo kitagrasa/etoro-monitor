@@ -29,24 +29,31 @@ Avisos automáticos por **Telegram** cuando los usuarios de eToro que tú elijas
 
 ### Por qué es fiable (y por qué no da falsos avisos)
 
-De cada activo se recuerda **una entrada por operación abierta**, con el
-identificador que eToro le da (`PositionID`) y sus unidades. Comparar posición a
-posición (y no solo el total) es lo que permite saber **qué** ha pasado:
+De cada activo se recuerda **su total de unidades**. Ese número **no cambia**
+porque el precio suba o baje, ni porque se mueva el resto de la cartera: solo
+cambia cuando su dueño opera. Por eso el mercado no puede generar un aviso falso.
 
 | Lo que ve el monitor | Qué ha pasado |
 |---|---|
 | Aparece un activo que no tenía | **COMPRA** (o **ABRE CORTO**) |
-| Aparece una posición nueva de un activo que ya tenía | **COMPRA** |
-| Suben las unidades de una posición abierta | **COMPRA PARCIAL** |
-| Bajan las unidades de una posición abierta | **VENTA PARCIAL** |
-| Desaparece una posición, pero le quedan otras | **VENTA PARCIAL** (o **VENTA PARCIAL CORTO**) |
+| Sube el total del activo | **COMPRA PARCIAL** |
+| Baja el total del activo | **VENTA PARCIAL** |
 | Desaparece el activo entero | **VENTA** (o **CIERRA CORTO**) |
+| El total queda igual | **nada** (aunque haya comprado y vendido) |
 
-Las unidades **no cambian** porque el precio suba o baje, ni porque se mueva el
-resto de la cartera. Por eso el mercado no puede generar un aviso falso.
+Y el total se saca **sin pedir las posiciones una por una**: el campo `Invested`
+de la cartera es exactamente la suma de unidades de las posiciones del activo
+(comprobado en 71 de 71 activos, y no se mueve con el mercado). Eso deja la
+pasada en **4 peticiones por persona** en vez de ~29.
 
-El **peso** de cada activo (`Invested`) sí se mueve con el mercado, así que se
-usa **solo como contexto** en el mensaje, nunca para decidir si hubo operación.
+En los **cortos** no está comprobado que `Invested` sea la suma de unidades, así
+que ahí sí se leen las posiciones (una petición por activo en corto). Y en cada
+pasada se comprueba **un activo al azar** contra sus posiciones (el *canario*):
+si `Invested` dejara de significar lo que significa, queda un aviso en el log.
+
+El **peso** que se enseña en el mensaje es ese mismo número, así que no es un
+porcentaje del mercado: es la parte que ese activo representa del total
+invertido.
 
 Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
 
@@ -125,10 +132,15 @@ mínimo del 0,05% que se exigía entonces, se avisaron como 10 ventas parciales 
 Para no confundir una venta grande de **un solo activo** con un ajuste, se
 exigen dos cosas más:
 
-* que el ajuste cubra al menos la **mitad de todas las posiciones** abiertas (no
-  solo de las que cambiaron), y
+* que el ajuste cubra al menos la **mitad de toda la cartera** (no solo de lo que
+  cambió), y
 * que toque **al menos dos activos** distintos (si la cartera solo tiene uno, no
   hay nada que repartir y se omite esta condición).
+
+Y el número de cambios que se exige (4) es un **tope, no un mínimo rígido**: en
+una cartera de 3 activos no se pueden pedir 4, así que se piden 3; en una de 2, se
+piden 2. Con **un solo** activo nunca hay ajuste, porque un único cambio es
+indistinguible de una venta normal.
 
 Así, vender el 10% de un activo con 20 posiciones **no** es un ajuste: se avisa
 como una venta parcial de ese activo (el neto). Una retirada que reduce el 98%
@@ -153,30 +165,32 @@ bloque, el peso **sin etiqueta** (solo el porcentaje, o `antes → después` si
 cambió) y sin notas como "cierra todo el activo".
 
 Es una heurística, pero basada en un modelo: un solo factor explica casi todos
-los cambios. Los umbrales que usa (`diff.py`) son de consistencia (cuántas
-posiciones comparten el factor y qué parte de la cartera cubren), no de tamaño de
-la operación.
+los cambios. Los umbrales que usa (`diff.py`) son de consistencia (cuántos
+activos comparten el factor y qué parte de la cartera cubren), no de tamaño de la
+operación.
 
-### Coherencia: si algo no cuadra, se relee
+### El canario: vigilar que `Invested` siga significando lo mismo
 
-La cartera y las posiciones se piden en momentos ligeramente distintos. Para que
-una lectura vieja no se coma una operación (pasó el 22/10/2026 con una compra de
-Microsoft), el monitor **comprueba que cuadren**: el `Invested` que da la cartera
-tiene que ser igual a la suma de unidades de las posiciones leídas.
+Toda la detección se apoya en que el `Invested` de la cartera es la suma de
+unidades de las posiciones del activo y no se mueve con el mercado. Eso está
+comprobado (71 de 71 activos, con una sesión entera, dos ajustes proporcionales y
+varias compras de por medio), pero es un contrato **no documentado**: si eToro lo
+cambiara, el monitor avisaría mal de todo a la vez.
 
-* Cuadra siempre en condiciones normales: en los **71 activos** de las carteras
-  que se siguen la diferencia es el redondeo (≤ 0,000002), y ese valor no se
-  mueve con el mercado.
-* Si no cuadra, se relee **ese** activo una vez, con un parámetro anti-caché. Si
-  la segunda lectura cuadra, el aviso sale en la misma pasada.
-* Si sigue sin cuadrar, se usa la lectura más reciente y queda un aviso en el
-  log. Nunca se bloquea el activo: bloquearlo podría dejarlo atascado.
-* Coste: **0 peticiones** en condiciones normales; una por activo descuadrado.
+Para enterarse a tiempo, en **cada pasada** se pide **un** activo y se comprueba
+que su `Invested` sigue cuadrando con sus posiciones (con una segunda lectura sin
+caché si la primera no cuadra, por si fuera una copia vieja). El turno va en el
+estado y avanza de uno en uno, así que **en N pasadas ha mirado los N activos**,
+sin depender de cada cuánto se ejecute. Si no cuadra, queda un `warning` en el log
+diciendo que hay que volver al modo de posiciones.
+
+* Coste: **1 petición** por persona y pasada (2 si la primera no cuadra).
+* No bloquea nada: solo avisa.
 
 ### El histórico de cierres: la segunda opinión
 
-Un ajuste se nota cuando **todas** las posiciones bajan lo mismo. Un recorte
-desigual (cada posición un poco distinto) ya no se puede distinguir de varias
+Un ajuste se nota cuando **todos** los activos bajan lo mismo. Un recorte
+desigual (cada activo un poco distinto) ya no se puede distinguir de varias
 ventas pequeñas mirando solo las unidades. Para eso está el histórico público de
 cierres de eToro:
 
@@ -612,28 +626,24 @@ Con eso, el repositorio público solo contiene código y documentación.
 
 ```json
 "1002:Buy": { "direction": "Buy", "instrument_id": 1002,
-              "units": 11.417114, "invested_pct": 11.41,
-              "positions": [ { "position_id": 701039100, "units": 8.0 },
-                             { "position_id": 701039999, "units": 3.417114 } ] }
+              "units": 11.417114, "invested_pct": 11.41, "positions": [] }
 ```
 
-El `PositionID` y las unidades de cada posición son **lo mínimo para saber si
-una compra abre una posición nueva o amplía una que ya existía**. El total
-(`units`) se guarda también, pero es la suma de las posiciones.
+El total (`units`) es **lo único que hace falta para saber si ha comprado o
+vendido**: solo cambia cuando su dueño opera. `positions` queda vacío en los
+largos (y con las posiciones reales en los cortos, donde sí se leen).
 
-**No se guarda**: fechas de apertura, precios de entrada, ganancias, valor de
-la cartera ni el apalancamiento. En cada persona sí hay un campo
-`history_since`: la marca de agua (una fecha UTC) de hasta cuándo se ha mirado
-el histórico de cierres, para no volver a pedir lo mismo cada pasada. Con una
-cartera real de 66 activos y 228 operaciones vivas, el estado ocupa unos
-**43 KB** (antes, sin las posiciones y con identificadores largos de posición,
-ocupaba **61,7 KB**; la primera versión que dejó de guardarlos bajó a ~18 KB).
+**No se guarda**: fechas de apertura, precios de entrada, ganancias, valor de la
+cartera ni el apalancamiento. En cada persona sí hay un campo `history_since`: la
+marca de agua (una fecha UTC) de hasta cuándo se ha mirado el histórico de
+cierres, para no volver a pedir lo mismo cada pasada. Una cartera de 27 activos
+ocupa unos **8 KB** (con las posiciones por activo ocupaba ~18 KB para 27
+activos, y ~43 KB para 66 activos con 228 operaciones).
 
-> **Nota honesta sobre el tamaño:** guardar el identificador de cada operación
-> es lo que permite distinguir "ha comprado algo nuevo" de "ha metido más
-> dinero en lo que ya tenía". En carteras con muchas operaciones vivas (es
-> habitual: 49 de los 66 activos del ejemplo tienen más de una) eso ocupa más
-> que guardar solo el total. Es el precio de no perderse ninguna compra.
+> **Nota honesta sobre el tamaño:** antes se guardaba el identificador de cada
+> operación para distinguir "ha comprado algo nuevo" de "ha metido más dinero en
+> lo que ya tenía". Con el aviso por el **neto del activo** eso dejó de hacer
+> falta, y el estado se quedó en el total.
 
 ### Nada crece sin control
 
@@ -733,14 +743,15 @@ etoro-monitor-estado/
 | Endpoint | Para qué |
 |---|---|
 | `/api/logininfo/v1.1/users/<usuario>` | nombre de usuario → `CID` |
-| `/sapi/trade-data-real/live/public/portfolios?cid=` | activos, lado y peso |
-| `/sapi/trade-data-real/live/public/positions?cid=&instrumentId=` | unidades de cada activo |
+| `/sapi/trade-data-real/live/public/portfolios?cid=` | activos, lado y **unidades totales** (`Invested`) |
+| `/sapi/trade-data-real/live/public/positions?cid=&instrumentId=` | posiciones de un activo (solo cortos y el canario) |
 | `/sapi/trade-data-real/history/public/portfolios/aggregated/breakdown?cid=&startTime=` | qué activos han cerrado posiciones (una por pasada) |
 | `/sapi/instrumentsmetadata/V1.1/instruments/<id>` | nombre y ticker |
 
-**Coste:** ~1 petición por activo y persona (unos 30 con cartera grande), más
-**una sola** del histórico por pasada y persona (cubre todos los activos de
-golpe). Es el precio de distinguir una operación de un movimiento del mercado.
+**Coste: 4 peticiones por persona y pasada** — usuario, cartera, canario e
+histórico — más una por activo en corto. Antes eran ~29 (una por activo),
+porque las posiciones se pedían una a una. Los nombres de los activos se piden
+una vez y quedan cacheados en el estado.
 
 ---
 

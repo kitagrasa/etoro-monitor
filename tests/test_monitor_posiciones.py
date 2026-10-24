@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from etoro_monitor.client import EtoroClient  # noqa: E402
-from etoro_monitor.models import Instrument  # noqa: E402
+from etoro_monitor.models import Asset, Instrument, Position  # noqa: E402
 from etoro_monitor.monitor import Monitor  # noqa: E402
 from etoro_monitor.state import State  # noqa: E402
 
@@ -136,20 +136,30 @@ class FakeSession:
         pass
 
 
-def test_cada_posicion_se_guarda_con_su_identificador(tmp_path):
+def test_en_los_largos_no_se_piden_posiciones(tmp_path):
+    """Modo cartera: el total de un largo sale del `Invested` de la cartera.
+
+    Una sola petición para toda la cartera (más el canario y el histórico), en
+    vez de una por activo.
+    """
     client = EtoroClient(delay=0.0, session=FakeSession())
     monitor = Monitor(client, State(path=tmp_path / "state.json"), notify=lambda _t: None)
 
-    usuario = monitor._resolve("UsuarioEjemplo")
-    snapshot = monitor.fetch_snapshot(usuario)
+    snapshot = monitor.fetch_snapshot(monitor._resolve("UsuarioEjemplo"))
 
     largo = snapshot.assets["1002:Buy"]
-    assert set(largo.positions) == {701039100, 701039999}
-    assert largo.positions[701039100].units == 1.0
-    assert largo.positions[701039999].units == 0.6
-    assert largo.units == 1.6  # el total es la suma, como antes
+    assert largo.positions == {}
+    assert largo.units == 1.6, "las unidades son el Invested de la cartera"
+    assert largo.invested_pct == 1.6
 
-    # El corto solo cuenta las posiciones de su lado.
+
+def test_las_posiciones_de_un_corto_si_se_leen(tmp_path):
+    """En los cortos no está comprobado que Invested sea la suma: se leen."""
+    client = EtoroClient(delay=0.0, session=FakeSession())
+    monitor = Monitor(client, State(path=tmp_path / "state.json"), notify=lambda _t: None)
+
+    snapshot = monitor.fetch_snapshot(monitor._resolve("UsuarioEjemplo"))
+
     corto = snapshot.assets["6:Sell"]
     assert set(corto.positions) == {705000000}
     assert corto.units == 0.354594
@@ -157,16 +167,19 @@ def test_cada_posicion_se_guarda_con_su_identificador(tmp_path):
 
 
 def test_dos_operaciones_iguales_del_mismo_activo_no_se_pisan(tmp_path):
-    """Dos compras del mismo importe son dos posiciones, no una."""
+    """Dos posiciones del mismo corto se suman; no se pisan."""
     dos_iguales = [
-        {"PositionID": 701039100, "IsBuy": True, "Amount": 1.0},
-        {"PositionID": 701039999, "IsBuy": True, "Amount": 1.0},
+        {"PositionID": 705000000, "IsBuy": False, "Amount": 1.0},
+        {"PositionID": 705000099, "IsBuy": False, "Amount": 1.0},
     ]
-    client = EtoroClient(delay=0.0, session=FakeSession(posiciones={1002: dos_iguales}))
+    cartera = {"AggregatedPositions": [{"InstrumentID": 6, "Direction": "Sell", "Invested": 2.0}]}
+    client = EtoroClient(
+        delay=0.0, session=FakeSession(cartera=cartera, posiciones={6: dos_iguales})
+    )
     monitor = Monitor(client, State(path=tmp_path / "state.json"), notify=lambda _t: None)
 
-    activo = monitor.fetch_snapshot(monitor._resolve("UsuarioEjemplo")).assets["1002:Buy"]
-    assert set(activo.positions) == {701039100, 701039999}
+    activo = monitor.fetch_snapshot(monitor._resolve("UsuarioEjemplo")).assets["6:Sell"]
+    assert set(activo.positions) == {705000000, 705000099}
     assert activo.units == 2.0
 
 
@@ -227,16 +240,16 @@ def estado_antiguo(tmp_path, *, unidades_previas: float, unidades_ahora: float):
 
 
 def test_un_estado_antiguo_no_dispara_avisos_equivocados(tmp_path):
-    """Con el estado viejo, una venta parcial parecería una venta total.
+    """Con el estado viejo, la primera pasada solo vuelve a tomar la foto.
 
-    Por eso la primera pasada solo vuelve a tomar la foto: no se avisa de
-    nada, y a partir de la siguiente ya se compara posición a posición.
+    Así no se avisa con datos que no puede comparar, y a partir de la siguiente
+    ya compara totales.
     """
     state, avisos = estado_antiguo(tmp_path, unidades_previas=1.0, unidades_ahora=0.4)
 
     assert avisos == [], "no debe avisar con datos que no puede comparar"
     assert state.user("usuarioejemplo").needs_positions_baseline is False
-    assert set(state.user("usuarioejemplo").assets["1002:Buy"].positions) == {701039100}
+    assert state.user("usuarioejemplo").assets["1002:Buy"].units == 0.4
 
 
 def test_tras_migrar_el_estado_ya_compara_posiciones(tmp_path):
@@ -369,14 +382,17 @@ def test_si_el_nombre_del_que_desaparece_ya_esta_no_se_pide(tmp_path):
 # Ajustes proporcionales de punta a punta
 # ---------------------------------------------------------------------- #
 def _cartera_con(factor: float = 1.0, *, compra_nueva: bool = False):
-    """Seis instrumentos con una posición cada uno, todas al mismo factor."""
+    """Seis instrumentos con una posición cada uno, todas al mismo factor.
+
+    En el modo cartera el total de un largo es su `Invested`, así que la compra
+    nueva también suma ahí (no en una posición suelta).
+    """
     cartera = []
     posiciones = {}
     for iid in (1002, 1003, 1004, 1005, 1006, 1007):
-        cartera.append({"InstrumentID": iid, "Direction": "Buy", "Invested": factor})
-        posiciones[iid] = [{"PositionID": iid * 10, "IsBuy": True, "Amount": factor}]
-    if compra_nueva:
-        posiciones[1002].append({"PositionID": 9999, "IsBuy": True, "Amount": 0.5})
+        invertido = factor + (0.5 if compra_nueva and iid == 1002 else 0.0)
+        cartera.append({"InstrumentID": iid, "Direction": "Buy", "Invested": invertido})
+        posiciones[iid] = [{"PositionID": iid * 10, "IsBuy": True, "Amount": invertido}]
     return {"AggregatedPositions": cartera}, posiciones
 
 
@@ -603,91 +619,100 @@ def test_un_estado_sin_marca_de_agua_no_se_calla_nada(tmp_path):
     # Y se aprovecha para dejar puesta la marca de agua.
     assert state.user("usuarioejemplo").history_since is not None
 
-
 # ---------------------------------------------------------------------- #
-# Coherencia cartera <-> posiciones: la segunda lectura
+# Canario: en cada pasada se comprueba que Invested sigue siendo las unidades
 # ---------------------------------------------------------------------- #
-def _pasada_con(state, avisos, cartera, posiciones, *, secuencias=None):
-    session = FakeSession(cartera=cartera, posiciones=posiciones, secuencias=secuencias)
+def _pasada_simple(state, avisos, unidades, *, posiciones=None):
+    cartera, por_defecto = _cartera_de(unidades)
+    session = FakeSession(cartera=cartera, posiciones=posiciones or por_defecto)
     client = EtoroClient(delay=0.0, session=session)
     reporte = Monitor(client, state, notify=avisos.append).run(["UsuarioEjemplo"])[0]
     client.close()
     return reporte, session
 
 
-def test_si_las_posiciones_no_cuadran_con_la_cartera_se_relee(tmp_path):
-    """El fallo del 22/10: la lectura de un activo se quedó atrás.
-
-    La cartera ya dice que ese activo tiene 2 unidades, pero la primera lectura
-    de posiciones devuelve 1 (vieja). Se relee con anti-caché, cuadra, y la
-    compra se avisa en la misma pasada.
-    """
+def test_en_cada_pasada_se_comprueba_un_activo(tmp_path, monkeypatch):
+    """El canario pide las posiciones de UN largo (no de todos)."""
+    monkeypatch.setattr("etoro_monitor.monitor.time.time", lambda: 0.0)
     state = State(path=tmp_path / "state.json")
     avisos: list[str] = []
-    _pasada_arbitro(state, avisos, UNA)  # línea base: 1 unidad por activo
-    avisos.clear()
 
-    cartera, posiciones = _cartera_de({**UNA, 1002: 2.0})
-    vieja = [{"PositionID": 10020, "IsBuy": True, "Amount": 1.0}]
-    nueva = [{"PositionID": 10020, "IsBuy": True, "Amount": 2.0}]
+    _, session = _pasada_simple(state, avisos, UNA)
 
-    reporte, session = _pasada_con(
-        state, avisos, cartera, posiciones, secuencias={1002: [vieja, nueva]}
-    )
-
-    assert [c.instrument_id for c in reporte.changes] == [1002]
-    assert reporte.changes[0].after.units == 2.0
-    assert "COMPRA PARCIAL" in avisos[0]
-
-    lecturas = [x for x in session.llamadas_posiciones if x[0] == 1002]
-    assert lecturas == [(1002, False), (1002, True)], "la segunda va sin caché"
+    assert len(session.llamadas_posiciones) == 1, "solo el canario"
+    instrumento, sin_cache = session.llamadas_posiciones[0]
+    assert instrumento in ACTIVOS_ARBITRO
+    assert sin_cache is False
 
 
-def test_si_cuadra_no_se_gasta_ninguna_lectura_de_mas(tmp_path):
+def test_el_canario_avisa_si_no_cuadra(tmp_path, monkeypatch):
+    """Si Invested deja de ser las unidades, queda un aviso en el log."""
+    monkeypatch.setattr("etoro_monitor.monitor.time.time", lambda: 0.0)
     state = State(path=tmp_path / "state.json")
     avisos: list[str] = []
-    _pasada_arbitro(state, avisos, UNA)
-    avisos.clear()
 
-    cartera, posiciones = _cartera_de({**UNA, 1002: 2.0})
-    reporte, session = _pasada_con(state, avisos, cartera, posiciones)
+    # La cartera dice 1.0 pero las posiciones de ese activo suman 3.0.
+    cartera, posiciones = _cartera_de(UNA)
+    cartera["AggregatedPositions"][0]["Invested"] = 1.0
+    malo = cartera["AggregatedPositions"][0]["InstrumentID"]
+    posiciones[malo] = [{"PositionID": malo * 10, "IsBuy": True, "Amount": 3.0}]
 
-    assert [c.instrument_id for c in reporte.changes] == [1002]
-    assert [x for x in session.llamadas_posiciones if x[0] == 1002] == [(1002, False)]
+    session_llamadas = []
+    _, session = _pasada_simple(state, avisos, UNA, posiciones=posiciones)
+    session_llamadas = session.llamadas_posiciones
 
-
-def test_si_tras_releer_sigue_sin_cuadrar_se_usa_la_lectura_nueva(tmp_path):
-    """No se bloquea el activo: se usa la más reciente y se sigue."""
-    state = State(path=tmp_path / "state.json")
-    avisos: list[str] = []
-    _pasada_arbitro(state, avisos, UNA)
-    avisos.clear()
-
-    cartera, posiciones = _cartera_de({**UNA, 1002: 2.0})
-    primera = [{"PositionID": 10020, "IsBuy": True, "Amount": 1.0}]
-    segunda = [{"PositionID": 10020, "IsBuy": True, "Amount": 1.5}]
-
-    reporte, session = _pasada_con(
-        state, avisos, cartera, posiciones, secuencias={1002: [primera, segunda]}
-    )
-
-    assert [c.instrument_id for c in reporte.changes] == [1002]
-    assert reporte.changes[0].after.units == 1.5
-    assert len([x for x in session.llamadas_posiciones if x[0] == 1002]) == 2
+    # Dos lecturas del activo: la normal y la de sin caché.
+    assert [x for x in session_llamadas if x[0] == malo] == [(malo, False), (malo, True)]
+    assert avisos, "la pasada sigue y avisa de la línea base"
 
 
-def test_en_los_cortos_no_se_comprueba_la_coherencia(tmp_path):
-    """En un corto no está comprobado que Invested sea la suma de unidades."""
+def test_sin_largos_no_hay_canario(tmp_path):
+    """Una cartera solo de cortos no gasta petición de canario."""
     state = State(path=tmp_path / "state.json")
     avisos: list[str] = []
     cartera = {
         "AggregatedPositions": [
-            {"InstrumentID": 6, "Direction": "Sell", "Invested": 0.71}
+            {"InstrumentID": 6, "Direction": "Sell", "Invested": 2.0}
         ]
     }
-    posiciones = {6: [{"PositionID": 60, "IsBuy": False, "Amount": 0.354594}]}
+    posiciones = {6: [{"PositionID": 60, "IsBuy": False, "Amount": 2.0}]}
+    session = FakeSession(cartera=cartera, posiciones=posiciones)
+    client = EtoroClient(delay=0.0, session=session)
+    Monitor(client, state, notify=avisos.append).run(["UsuarioEjemplo"])
+    client.close()
 
-    _, session = _pasada_con(state, avisos, cartera, posiciones)
+    assert session.llamadas_posiciones == [(6, False)], "solo la lectura del corto"
 
-    assert session.llamadas_posiciones == [(6, False)], "no debe releer en cortos"
+
+def test_el_canario_rota_entre_los_largos():
+    from etoro_monitor.monitor import _activo_canario
+
+    largo = Asset(1002, "Buy", {}, 1.0, total=1.0)
+    otro = Asset(1003, "Buy", {}, 1.0, total=1.0)
+    corto = Asset(6, "Sell", {60: Position(60, 1.0)}, 1.0)
+    activos = {a.key: a for a in (largo, otro, corto)}
+
+    vistos = {_activo_canario(activos, turno).instrument_id for turno in (0, 1)}
+    assert vistos == {1002, 1003}
+    assert _activo_canario({"6:Sell": corto}, 0) is None
+
+def test_el_canario_va_mirando_todos_los_activos(tmp_path):
+    """Pasada a pasada, el canario recorre todos los largos, uno por pasada.
+
+    El turno va en el estado (no en la hora), así que da igual cada cuánto se
+    ejecute: en N pasadas ha mirado los N activos.
+    """
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    cartera, posiciones = _cartera_de(UNA)
+    session = FakeSession(cartera=cartera, posiciones=posiciones)
+    client = EtoroClient(delay=0.0, session=session)
+    monitor = Monitor(client, state, notify=avisos.append)
+
+    for _ in range(len(ACTIVOS_ARBITRO)):
+        monitor.run(["UsuarioEjemplo"])
+    client.close()
+
+    vistos = [iid for iid, sin_cache in session.llamadas_posiciones if not sin_cache]
+    assert sorted(vistos) == sorted(ACTIVOS_ARBITRO), "uno por pasada, sin repetir"
 
