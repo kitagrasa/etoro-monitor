@@ -16,7 +16,7 @@ from html import escape
 from typing import Iterable, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from .models import KIND_ORDER, Change, EtoroUser, Snapshot
+from .models import KIND_ORDER, PESO_DECIMALES, Change, EtoroUser, Snapshot
 
 log = logging.getLogger(__name__)
 
@@ -25,15 +25,15 @@ log = logging.getLogger(__name__)
 #
 #   🟢 COMPRA            (total, compra)
 #   🔴 VENTA             (total, venta)
-#   ➕ COMPRA PARCIAL    (parcial, compra)
-#   ➖ VENTA PARCIAL     (parcial, venta)
+#   💚 COMPRA PARCIAL    (parcial, compra)
+#   ❤️ VENTA PARCIAL     (parcial, venta)
 #
-# Las parciales son signos y no triángulos porque **no existe un emoji de
-# triángulo verde**: los únicos triángulos con color son 🔺 y 🔻, los dos rojos,
-# y un triángulo rojo para una compra confundiría. ➕ y ➖ sí son verdes y rojos,
-# y además se leen como lo que son: añadir o quitar unidades.
-EMOJI_COMPRA = ("🟢", "➕")  # (total, parcial)
-EMOJI_VENTA = ("🔴", "➖")  # (total, parcial)
+# Totales: círculo (🟢/🔴). Parciales: corazón (💚/❤️), pedido el 26/10/2026
+# (antes eran ➕/➖). El corazón no dice "más" ni "menos": eso lo dice el verbo
+# (COMPRA/VENTA). Lo que aporta es la forma, que es lo que separa una operación
+# parcial de una total. El color sigue diciendo el lado: verde compra, rojo venta.
+EMOJI_COMPRA = ("🟢", "💚")  # (total, parcial)
+EMOJI_VENTA = ("🔴", "❤️")  # (total, parcial)
 
 # Verbos por tipo de operación: (largo, corto, largo parcial, corto parcial).
 # Los cortos llevan "CORTO" explícito y van en negrita igual que los largos.
@@ -54,7 +54,7 @@ COMPRAS = ("opened", "increased")
 
 
 def emoji_of(kind: str, *, partial: bool) -> str:
-    """El icono: círculo si es total, cuadrado si es parcial; verde o rojo."""
+    """El icono: círculo si es total, corazón si es parcial; verde o rojo."""
     total, parcial = EMOJI_COMPRA if kind in COMPRAS else EMOJI_VENTA
     return parcial if partial else total
 
@@ -84,10 +84,10 @@ def format_number(value: float, decimals: int = 2) -> str:
     return text.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
 
 
-def format_weight(weight: Optional[float]) -> str:
+def format_weight(weight: Optional[float], decimals: int = PESO_DECIMALES) -> str:
     if weight is None:
         return "?"
-    return f"{format_number(weight, 2)}%"
+    return f"{format_number(weight, decimals)}%"
 
 
 def format_date(iso: str) -> str:
@@ -141,9 +141,10 @@ def now_madrid() -> str:
 def _weight_line(change: Change) -> str:
     """El peso del activo, como contexto: solo el porcentaje.
 
-    Sin etiqueta: un activo nuevo enseña el peso que tiene; uno que desaparece,
-    el que tenía; y en los demás, "antes → después" (o uno solo si coincide al
-    céntimo).
+    Sin etiqueta: un activo **nuevo** enseña el peso que tiene; uno que
+    **desaparece**, el que tenía; y en los parciales, siempre "antes → después",
+    también cuando el cambio es tan pequeño que a dos decimales se lee igual
+    (26/10/2026: el usuario no quiere un solo número que no explica nada).
     """
     antes, ahora = change.weight_before, change.weight_after
 
@@ -153,9 +154,24 @@ def _weight_line(change: Change) -> str:
         return format_weight(antes)
     if antes is None or ahora is None:
         return ""
-    if round(antes, 2) == round(ahora, 2):
-        return format_weight(ahora)
-    return f"{format_weight(antes)} → {format_weight(ahora)}"
+    return _weight_pair(antes, ahora)
+
+
+def _weight_pair(antes: float, ahora: float) -> str:
+    """«16,67% → 17,80%», con los decimales que hagan falta para distinguirlos.
+
+    Los cambios de milésimas (redondeo de eToro) no llegan aquí: el monitor los
+    descarta antes con `diff.quitar_compras_invisibles`. Si aun así los dos
+    pesos se leen igual a dos decimales —una bajada pequeña que el histórico sí
+    respalda—, se enseñan tres o cuatro antes que repetir el mismo número dos
+    veces: repetido parece un fallo y no dice cuánto ha cambiado.
+    """
+    for decimales in range(PESO_DECIMALES, PESO_DECIMALES + 3):
+        izquierda = format_number(antes, decimales)
+        derecha = format_number(ahora, decimales)
+        if izquierda != derecha:
+            return f"{izquierda}% → {derecha}%"
+    return format_weight(ahora)
 
 
 # ---------------------------------------------------------------------- #

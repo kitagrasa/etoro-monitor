@@ -586,6 +586,63 @@ def test_una_pasada_de_compras_no_descarta_nada(tmp_path):
     assert "COMPRA PARCIAL" in avisos[0]
 
 
+# ---------------------------------------------------------------------- #
+# Compras de redondeo: no se avisan, pero la foto se guarda
+# ---------------------------------------------------------------------- #
+# Cinco activos al 11%: un peso normal, no de mentira.
+GRANDE = {iid: 11.0 for iid in ACTIVOS_ARBITRO}
+
+
+def test_una_compra_de_milesimas_no_manda_mensaje(tmp_path):
+    """26/10/2026: llegaba "COMPRA PARCIAL" con el mismo porcentaje.
+
+    eToro publica el `Invested` redondeado y un activo sube milésimas sin que
+    nadie compre: no hay nada que copiar y el mensaje diría "11,00% → 11,00%".
+    """
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, GRANDE)  # línea base
+    avisos.clear()
+
+    reporte, _ = _pasada_arbitro(state, avisos, {**GRANDE, 1002: 11.0003})
+
+    assert reporte.changes == []
+    assert avisos == []
+    # La foto nueva SÍ se guarda: el aviso no se repite en la pasada siguiente.
+    assert state.user("usuarioejemplo").assets["1002:Buy"].units == 11.0003
+
+
+def test_una_compra_que_se_ve_si_manda_mensaje(tmp_path):
+    """La misma cartera, con una compra de verdad: se avisa antes y ahora."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, GRANDE)
+    avisos.clear()
+
+    reporte, _ = _pasada_arbitro(state, avisos, {**GRANDE, 1002: 11.5})
+
+    assert len(reporte.changes) == 1
+    assert len(avisos) == 1
+    assert "COMPRA PARCIAL" in avisos[0]
+    assert "11,00% → 11,50%" in avisos[0]
+
+
+def test_una_compra_de_redondeo_no_estorba_a_una_compra_de_verdad(tmp_path):
+    """Dos activos en la misma pasada: solo el aviso de la compra real."""
+    state = State(path=tmp_path / "state.json")
+    avisos: list[str] = []
+    _pasada_arbitro(state, avisos, GRANDE)
+    avisos.clear()
+
+    reporte, _ = _pasada_arbitro(
+        state, avisos, {**GRANDE, 1002: 11.0003, 1003: 12.0}
+    )
+
+    assert [c.instrument_id for c in reporte.changes] == [1003]
+    assert len(avisos) == 1
+    assert "11,00% → 12,00%" in avisos[0]
+
+
 def test_la_marca_de_agua_se_guarda_y_es_la_que_se_usa(tmp_path):
     """El histórico se pide "desde la foto anterior", no desde el principio."""
     state = State(path=tmp_path / "state.json")

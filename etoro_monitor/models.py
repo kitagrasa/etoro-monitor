@@ -14,6 +14,12 @@ from typing import Any, Optional
 # (evita diferencias de 1e-15 al sumar muchas posiciones en distinto orden).
 UNITS_DECIMALS = 8
 
+# Cuántos decimales se enseñan del peso en el mensaje. Es también la precisión
+# a la que se decide si un cambio "se ve": una compra que no mueve este decimal
+# no se puede contar (el mensaje diría el mismo porcentaje dos veces) y no hay
+# nada que copiar. Ver `diff.quitar_compras_invisibles`.
+PESO_DECIMALES = 2
+
 
 @dataclass(frozen=True)
 class EtoroUser:

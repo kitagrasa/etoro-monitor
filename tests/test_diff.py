@@ -17,7 +17,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from etoro_monitor.diff import diff_snapshots, netear, split_adjustment  # noqa: E402
+from etoro_monitor.diff import (  # noqa: E402
+    diff_snapshots,
+    es_compra_invisible,
+    netear,
+    quitar_compras_invisibles,
+    split_adjustment,
+)
 from etoro_monitor.models import Asset, EtoroUser, Position, Snapshot  # noqa: E402
 
 # Usuario ficticio: los tests no deben contener datos de personas reales.
@@ -659,4 +665,67 @@ def test_modo_cartera_tambien_vale_para_migrar():
         snap(asset(1002, 1.0, extra={9999: 0.5})), snap(total(1002, 2.0))
     )
     assert [c.kind for c in cambios] == ["increased"]
+
+
+# ---------------------------------------------------------------------- #
+# Compras que no se ven: el redondeo de `Invested`
+# ---------------------------------------------------------------------- #
+def test_una_compra_de_milesimas_no_se_avisa():
+    """26/10/2026: "COMPRA PARCIAL" con el mismo porcentaje antes y después.
+
+    eToro publica el `Invested` redondeado, así que un activo puede subir
+    milésimas sin que su dueño haya comprado nada. Ese cambio no se puede
+    enseñar (saldría "11,04% → 11,04%") y no hay nada que copiar.
+    """
+    cambios = netos(
+        snap(total(1002, 11.0432, pct=11.0432)),
+        snap(total(1002, 11.0435, pct=11.0435)),
+    )
+
+    assert [c.kind for c in cambios] == ["increased"], "el diff sí ve el cambio"
+    assert es_compra_invisible(cambios[0])
+    assert quitar_compras_invisibles(cambios) == []
+
+
+def test_una_compra_que_se_ve_en_el_mensaje_si_se_avisa():
+    cambios = netos(
+        snap(total(1002, 11.04, pct=11.04)),
+        snap(total(1002, 11.06, pct=11.06)),
+    )
+
+    assert not es_compra_invisible(cambios[0])
+    assert quitar_compras_invisibles(cambios) == cambios
+
+
+def test_las_bajadas_no_las_filtra_esta_regla():
+    """De las bajadas se ocupa el histórico: aquí no se toca ninguna."""
+    cambios = netos(
+        snap(total(1002, 11.0432, pct=11.0432)),
+        snap(total(1002, 11.0430, pct=11.0430)),
+    )
+
+    assert [c.kind for c in cambios] == ["reduced"]
+    assert quitar_compras_invisibles(cambios) == cambios
+
+
+def test_un_activo_nuevo_o_que_desaparece_nunca_se_filtra():
+    """Que aparezca o desaparezca un activo es una operación, pese el que pese."""
+    nuevo = netos(snap(), snap(total(1002, 0.001, pct=0.001)))
+    fuera = netos(snap(total(1002, 0.001, pct=0.001)), snap())
+
+    assert [c.kind for c in nuevo] == ["opened"]
+    assert [c.kind for c in fuera] == ["closed"]
+    assert quitar_compras_invisibles(nuevo) == nuevo
+    assert quitar_compras_invisibles(fuera) == fuera
+
+
+def test_las_compras_visibles_y_las_invisibles_conviven():
+    """Se quita la de redondeo y se queda la de verdad: una pasada, dos activos."""
+    cambios = netos(
+        snap(total(1002, 11.0432, pct=11.0432), total(1003, 5.0, pct=5.0)),
+        snap(total(1002, 11.0435, pct=11.0435), total(1003, 5.5, pct=5.5)),
+    )
+
+    assert [c.instrument_id for c in cambios] == [1002, 1003]
+    assert [c.instrument_id for c in quitar_compras_invisibles(cambios)] == [1003]
 

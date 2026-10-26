@@ -32,7 +32,15 @@ from __future__ import annotations
 import statistics
 from typing import Optional
 
-from .models import UNITS_DECIMALS, Adjustment, Asset, Change, Position, Snapshot
+from .models import (
+    PESO_DECIMALES,
+    UNITS_DECIMALS,
+    Adjustment,
+    Asset,
+    Change,
+    Position,
+    Snapshot,
+)
 
 
 def diff_snapshots(before: Snapshot, after: Snapshot) -> list[Change]:
@@ -236,6 +244,46 @@ def netear(changes: list[Change]) -> list[Change]:
         # delta == 0: compró y vendió lo mismo. No hay nada que copiar.
 
     return netos
+
+
+# ---------------------------------------------------------------------- #
+# Compras que no se ven: el redondeo de `Invested`
+# ---------------------------------------------------------------------- #
+# eToro publica el `Invested` con 6 decimales sobre una cartera normalizada a
+# 100, así que de vez en cuando un activo sube milésimas sin que su dueño haya
+# comprado nada: es redondeo, no una operación. El 26/10/2026 llegaron dos
+# "COMPRA PARCIAL" (Harbour Energy y un ETF del NASDAQ 100) que enseñaban el
+# mismo porcentaje antes y después: el cambio era de menos de 0,005 puntos.
+#
+# Esa es justo la frontera: un cambio que no mueve el decimal con el que se
+# enseña el peso no se puede contar. El mensaje diría "11,04% → 11,04%", que no
+# informa de nada, y lo que hay que copiar es indistinguible de cero.
+#
+# Solo se filtran las COMPRAS. De las bajadas ya se ocupa `historial.arbitrar`,
+# que sí puede distinguir un recorte de eToro de una venta de verdad; aquí no se
+# le quita ese trabajo.
+def _mismo_peso(antes: Optional[float], ahora: Optional[float]) -> bool:
+    """¿Los dos pesos se enseñan con el mismo número?"""
+    if antes is None or ahora is None:
+        return False
+    return round(antes, PESO_DECIMALES) == round(ahora, PESO_DECIMALES)
+
+
+def es_compra_invisible(change: Change) -> bool:
+    """¿Es una compra que el mensaje no podría ni enseñar?"""
+    if change.kind != "increased":
+        return False
+    return _mismo_peso(change.weight_before, change.weight_after)
+
+
+def quitar_compras_invisibles(changes: list[Change]) -> list[Change]:
+    """Quita las compras que no mueven el decimal del peso.
+
+    No es una operación que copiar: es el redondeo del `Invested` de eToro (ver
+    el comentario de arriba). Los activos nuevos y los que desaparecen no se
+    tocan: que aparezca o desaparezca un activo siempre es una operación.
+    """
+    return [change for change in changes if not es_compra_invisible(change)]
 
 
 # ---------------------------------------------------------------------- #

@@ -67,12 +67,12 @@ def test_formato_espanol():
 # ---------------------------------------------------------------------- #
 # Iconos: forma = total/parcial, color = compra/venta
 # ---------------------------------------------------------------------- #
-def test_iconos_circulo_para_las_totales_y_signo_para_las_parciales():
-    """Pedido el 22/10: 🟢 compra, 🔴 venta, ➕ compra parcial, ➖ venta parcial."""
+def test_iconos_circulo_para_las_totales_y_corazon_para_las_parciales():
+    """26/10/2026: 🟢 compra, 🔴 venta, 💚 compra parcial, ❤️ venta parcial."""
     casos = [
         (snap(), snap(asset(1002, 1.0)), "🟢", "COMPRA"),
-        (snap(asset(1002, 1.0)), snap(asset(1002, 1.5)), "➕", "COMPRA PARCIAL"),
-        (snap(asset(1002, 1.0)), snap(asset(1002, 0.5)), "➖", "VENTA PARCIAL"),
+        (snap(asset(1002, 1.0)), snap(asset(1002, 1.5)), "💚", "COMPRA PARCIAL"),
+        (snap(asset(1002, 1.0)), snap(asset(1002, 0.5)), "❤️", "VENTA PARCIAL"),
         (snap(asset(1002, 1.0)), snap(), "🔴", "VENTA"),
     ]
     for antes, despues, icono, verbo in casos:
@@ -94,17 +94,17 @@ def test_iconos_de_los_cortos():
     )
 
     assert abre.startswith("🟢 <b>ABRE CORTO</b>"), abre
-    assert amplia.startswith("➕ <b>COMPRA PARCIAL CORTO</b>"), amplia
+    assert amplia.startswith("💚 <b>COMPRA PARCIAL CORTO</b>"), amplia
     assert cierra.startswith("🔴 <b>CIERRA CORTO</b>"), cierra
 
 
 def test_emoji_of_por_forma_y_por_tipo():
-    """Círculo total / signo parcial, y verde compra / rojo venta."""
+    """Círculo total / corazón parcial, y verde compra / rojo venta."""
     from etoro_monitor.render import emoji_of
 
     assert emoji_of("opened", partial=False) == "🟢"
-    assert emoji_of("increased", partial=True) == "➕"
-    assert emoji_of("reduced", partial=True) == "➖"
+    assert emoji_of("increased", partial=True) == "💚"
+    assert emoji_of("reduced", partial=True) == "❤️"
     assert emoji_of("closed", partial=False) == "🔴"
 
 
@@ -300,6 +300,39 @@ def test_el_mensaje_no_lleva_linea_de_ajuste_ni_peso_con_etiqueta():
     assert "peso en cartera" not in texto
     assert "peso antes" not in texto
     assert "Reducción proporcional" not in texto
+
+
+def test_un_cambio_de_peso_muy_pequeno_enseña_mas_decimales():
+    """26/10/2026: nunca el mismo porcentaje dos veces.
+
+    Si a dos decimales los dos pesos se leen igual, se enseñan los decimales
+    que hagan falta para que se vea que algo ha cambiado (el monitor no manda
+    estos avisos, pero una bajada pequeña que el histórico respalde sí llega).
+    """
+    changes = diff_snapshots(
+        snap(asset(1002, 1.0, pct=11.043)), snap(asset(1002, 0.99, pct=11.041))
+    )
+    texto = solo(changes)
+
+    assert "11,043% → 11,041%" in texto
+    assert "11,04% → 11,04%" not in texto
+
+
+def test_el_peso_parcial_enseña_siempre_el_antes_y_el_ahora():
+    """Pedido el 26/10: en las parciales, el porcentaje previo y el actual."""
+    compra = solo(
+        diff_snapshots(
+            snap(asset(1002, 1.0, pct=16.67)), snap(asset(1002, 1.5, pct=17.8))
+        )
+    )
+    venta = solo(
+        diff_snapshots(
+            snap(asset(1002, 1.0, pct=7.79)), snap(asset(1002, 0.5, pct=3.3))
+        )
+    )
+
+    assert "16,67% → 17,80%" in compra
+    assert "7,79% → 3,30%" in venta
 
 
 def test_el_mensaje_no_lleva_cierra_todo_el_activo():

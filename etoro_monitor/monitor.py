@@ -16,10 +16,21 @@ from .client import (
     UserNotFound,
 )
 from .cooldown import CooldownStore, error_key
-from .diff import diff_snapshots, netear, split_adjustment
+from .diff import (
+    diff_snapshots,
+    es_compra_invisible,
+    netear,
+    quitar_compras_invisibles,
+    split_adjustment,
+)
 from .historial import arbitrar
 from .models import Adjustment, Asset, Change, EtoroUser, Instrument, Position, Snapshot
-from .render import render_baseline, render_problem, render_user_changes
+from .render import (
+    format_weight,
+    render_baseline,
+    render_problem,
+    render_user_changes,
+)
 from .state import RuntimeState, State
 
 log = logging.getLogger(__name__)
@@ -207,6 +218,25 @@ class Monitor:
             # parcial de 1. En los largos el diff ya da un solo cambio por
             # activo (compara totales); en los cortos junta las posiciones.
             changes = netear(diff_snapshots(previous, snapshot))
+            # eToro publica el `Invested` redondeado, así que a veces un activo
+            # sube milésimas sin que su dueño haya comprado (26/10/2026: dos
+            # "COMPRA PARCIAL" con el mismo porcentaje antes y después). Una
+            # compra que no mueve el decimal con el que se enseña el peso no se
+            # puede contar ni hay nada que copiar: fuera. Se guarda igualmente
+            # la foto nueva, así que no se repite en la pasada siguiente.
+            invisibles = [change for change in changes if es_compra_invisible(change)]
+            if invisibles:
+                changes = quitar_compras_invisibles(changes)
+                log.info(
+                    "%s: %d compra(s) de redondeo descartada(s): %s",
+                    user.username,
+                    len(invisibles),
+                    ", ".join(
+                        f"{c.instrument_id} {format_weight(c.weight_before)}"
+                        f" -> {format_weight(c.weight_after)}"
+                        for c in invisibles
+                    ),
+                )
             changes, adjustment = split_adjustment(
                 changes,
                 total_positions=len(previous.assets),

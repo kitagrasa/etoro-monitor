@@ -63,9 +63,9 @@ Los **cortos** se anuncian siempre en negrita y con la palabra CORTO:
 
 🟢 COMPRA · Apple (AAPL)  (nueva en cartera)
    1,20%
-➕ COMPRA PARCIAL · Alphabet (GOOG)
-   9,00%
-➖ VENTA PARCIAL · Tesla (TSLA)
+💚 COMPRA PARCIAL · Alphabet (GOOG)
+   9,00% → 9,60%
+❤️ VENTA PARCIAL · Tesla (TSLA)
    4,20% → 2,10%
 🔴 CIERRA CORTO · EUR/USD
    0,71%
@@ -77,12 +77,12 @@ parcial**, y **el color, si es compra o venta**.
 | | Compra | Venta |
 |---|---|---|
 | **Total** (círculo) | 🟢 COMPRA | 🔴 VENTA |
-| **Parcial** (`+`/`−`) | ➕ COMPRA PARCIAL | ➖ VENTA PARCIAL |
+| **Parcial** (corazón) | 💚 COMPRA PARCIAL | ❤️ VENTA PARCIAL |
 
-Las parciales son signos y no triángulos porque **no existe un emoji de
-triángulo verde**: los triángulos con color son 🔺 y 🔻, los dos rojos, y un
-triángulo rojo para una compra confundiría. ➕ y ➖ sí son verdes y rojos, y se
-leen como lo que son: añadir o quitar unidades.
+El corazón no significa "me gusta": es la forma que separa una operación parcial
+de una total, y el color dice el lado (verde compra, rojo venta). Lo que sea
+"más" o "menos" lo dice el verbo: COMPRA o VENTA. (Hasta el 26/10/2026 las
+parciales eran ➕/➖.)
 
 La cabecera lleva **quién** y **cuándo**, en hora de Madrid (cambio de hora
 incluido), y nada más: ni "ha movido su cartera" ni el recuento de operaciones.
@@ -110,6 +110,21 @@ Da igual en cuántas posiciones lo parta eToro, o si la compra y la venta caen e
 posiciones distintas: el aviso es uno por activo y dice el resultado. Un activo
 que termina con las mismas unidades que empezó no genera aviso, aunque por el
 camino haya habido compras y ventas.
+
+### Redondeo: las compras de milésimas no se avisan
+
+eToro publica el `Invested` con seis decimales, así que de vez en cuando un
+activo sube milésimas sin que su dueño haya comprado nada. El 26/10/2026
+llegaron dos "COMPRA PARCIAL" (Harbour Energy y un ETF del NASDAQ 100) en las que
+el porcentaje de antes y el de después eran **el mismo número**: el cambio no
+llegaba ni a una centésima de punto de peso.
+
+Una compra que no mueve el decimal con el que se enseña el peso **no se avisa**:
+no hay nada que copiar y el mensaje solo podría repetir el mismo número. La foto
+nueva se guarda igual, así que el aviso no se repite en la pasada siguiente.
+
+Las **bajadas** no las filtra esta regla: de ellas se ocupa el histórico de
+cierres (más abajo), que sí puede distinguir un recorte de eToro de una venta.
 
 ### Ajustes proporcionales: no son compras ni ventas
 
@@ -154,15 +169,16 @@ de la cartera, sí.
 🔔 Usuario Ejemplo
 19/10/2026 15:41
 
-➕ COMPRA PARCIAL · Micron (MU)
-   7,79%
+💚 COMPRA PARCIAL · Micron (MU)
+   7,79% → 7,40%
 🔴 VENTA · Sandisk (SNDK)
    5,36%
 ```
 
 Los mensajes son deliberadamente escuetos: un bloque por activo, un verbo por
-bloque, el peso **sin etiqueta** (solo el porcentaje, o `antes → después` si
-cambió) y sin notas como "cierra todo el activo".
+bloque, el peso **sin etiqueta** (en las parciales, siempre `antes → después`; un
+solo número solo cuando el activo aparece o desaparece) y sin notas como "cierra
+todo el activo".
 
 Es una heurística, pero basada en un modelo: un solo factor explica casi todos
 los cambios. Los umbrales que usa (`diff.py`) son de consistencia (cuántos
